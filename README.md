@@ -10,7 +10,9 @@ It merges two data sources into one JSON snapshot every ~700 ms:
 - **Hardware (PMBus over I2C):** per-rail voltage, current, power, and
   temperature for the CPU and GPU rails, read straight from the VRM/PMIC.
   The chip address (`0x60`) is fixed in hardware; the I2C bus number isn't,
-  so the daemon scans `/dev/i2c-*` and finds it automatically.
+  so the daemon scans `/dev/i2c-*` and finds it automatically. Getting this
+  bus exposed in the first place requires a small physical mod — see
+  [hardware.md](hardware.md).
 - **Software (Linux hwmon/sysfs):** die temperatures, clocks, power draw
   (PPT), and fan RPM/PWM, via the `amdgpu`, `k10temp`, `nct6686`, and `nvme`
   hwmon directories.
