@@ -1,0 +1,22 @@
+# Compiled binary (distributed via GitHub Releases, not in git)
+apu_telemetry
+*.o
+
+# Runtime data (tmpfs, /run) — in case it ever ends up in the repo via tests
+apu_telemetry.json
+
+# KDE Dolphin
+.directory
+
+# Python
+__pycache__/
+*.pyc
+
+# Editors/IDE
+.vscode/
+.idea/
+*.swp
+.claude/settings.local.json
+
+# OS
+.DS_Store

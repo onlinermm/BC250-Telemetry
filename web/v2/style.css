@@ -1,0 +1,266 @@
+:root {
+    --bg-color: #0b0f19;
+    --glass-bg: rgba(15, 23, 42, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.05);
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-glow: rgba(56, 189, 248, 0.4);
+    --accent-gpu: #fb923c;
+    --accent-amber: #fbbf24;
+
+    --status-good: #34d399;
+    --status-warning: #fbbf24;
+    --status-serious: #fb923c;
+    --status-critical: #fb7185;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Inter', sans-serif;
+    font-variant-numeric: tabular-nums;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    min-height: 100vh;
+    /* Vertical centering: min-height (not a fixed height) means the content
+       stays centered on tall screens, and if it ever grows taller than the
+       viewport, the page just scrolls naturally instead of getting clipped. */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Background blobs — same trick as on the main dashboard page */
+.background-blobs {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    z-index: 0; pointer-events: none; overflow: hidden;
+}
+.blob {
+    position: absolute; filter: blur(120px); opacity: .4; border-radius: 50%;
+}
+.blob-1 { top: -10%; left: -10%; width: 50vw; height: 50vw; background: rgba(56, 189, 248, .2); }
+.blob-2 { bottom: -10%; right: -10%; width: 50vw; height: 50vw; background: rgba(14, 165, 233, .15); }
+
+.hud-container {
+    position: relative; z-index: 1;
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 28px;
+    box-sizing: border-box;
+}
+
+.board-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 12px;
+    align-items: stretch;
+}
+
+.board-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, .3);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.board-card::before {
+    content: "";
+    display: block;
+    height: 2px;
+    background: var(--accent);
+}
+.board-card.accent-good::before { background: var(--status-good); }
+.board-card.accent-cpu::before { background: var(--accent); }
+.board-card.accent-gpu::before { background: var(--accent-gpu); }
+.board-card.accent-amber::before { background: var(--accent-amber); }
+
+.card-title {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2.2px;
+    padding: 13px 16px 11px;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+    color: var(--accent);
+}
+.card-title.accent-good { color: var(--status-good); }
+.card-title.accent-cpu { color: var(--accent); }
+.card-title.accent-gpu { color: var(--accent-gpu); }
+.card-title.accent-amber { color: var(--accent-amber); }
+
+.board-svg-wrap { padding: 2px 10px 6px; }
+#bc250-board { display: block; width: 100%; height: auto; }
+
+.board-hero {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    padding: 16px;
+}
+/* 3 columns once the second (backplate) fan shows up */
+.board-hero.has-backfan { grid-template-columns: 1fr 1fr 1fr; }
+.board-hero-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.board-hero-item.align-end { align-items: flex-end; }
+.board-hero-item .lbl { font-size: 10px; letter-spacing: 1.4px; color: var(--text-muted); }
+.board-hero-item .fan-pwm-inline { font-size: 12px; font-weight: 700; color: var(--status-good); }
+.board-hero-item .val-box { display: flex; align-items: baseline; gap: 3px; }
+.board-hero-item .val { font-size: 38px; font-weight: 800; line-height: .95; letter-spacing: -1px; color: var(--text-main); }
+.board-hero-item .unit { font-size: 17px; font-weight: 800; color: var(--text-muted); }
+.board-hero-item .unit-amber { color: var(--accent-amber); }
+.ppt-item .val { color: var(--accent-amber); }
+
+/* SMU PPT: warning colors as we approach the power limits — same as v1 */
+.ppt-item.ppt-warning .val { color: var(--status-warning); text-shadow: 0 0 12px rgba(251, 191, 36, .4); }
+.ppt-item.ppt-critical .val { color: var(--status-critical); text-shadow: 0 0 12px rgba(251, 113, 133, .4); animation: v2-ppt-blink .8s ease-in-out infinite; }
+@keyframes v2-ppt-blink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+.board-panel {
+    margin: 0 12px 12px;
+    background: rgba(2, 6, 23, .45);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    overflow: hidden;
+    flex: 1;
+}
+/* MEMORY is a compact panel and shouldn't stretch: in BOARD·COOLING it comes
+   before THERMALS, and THERMALS (the last .board-panel) is the one that should keep flex:1. */
+#v2-memory-panel { flex: 0 0 auto; }
+.panel-title {
+    font-size: 9.5px;
+    letter-spacing: 2.2px;
+    color: #64748b;
+    text-align: center;
+    padding: 9px 0 7px;
+}
+.board-row { padding: 8px 14px 9px; }
+.board-row-main {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; font-size: 13.5px;
+}
+.board-row-main span:first-child { color: var(--text-muted); }
+.board-row-main .r-val {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 15px; font-weight: 700; color: var(--text-main);
+    display: flex; align-items: baseline; gap: 4px;
+}
+.accent-cpu-text { color: var(--accent) !important; }
+.accent-gpu-text { color: var(--accent-gpu) !important; }
+.accent-amber-text { color: var(--accent-amber) !important; }
+
+.mini-bar {
+    margin-top: 7px; height: 2px; border-radius: 1px;
+    background: rgba(255, 255, 255, .07); overflow: hidden;
+}
+.mini-bar-fill {
+    height: 100%; width: 0%; border-radius: 1px;
+    background: var(--accent);
+    transition: width .25s linear, background-color .2s linear;
+}
+.accent-cpu-bg { background: var(--accent) !important; }
+.accent-gpu-bg { background: var(--accent-gpu) !important; }
+
+/* Temperature color semantics: good -> warning -> serious -> critical */
+.r-val.status-good, .unit.status-good { color: var(--status-good) !important; }
+.r-val.status-warning, .unit.status-warning { color: var(--status-warning) !important; }
+.r-val.status-serious, .unit.status-serious { color: var(--status-serious) !important; }
+.r-val.status-critical, .unit.status-critical { color: var(--status-critical) !important; }
+.mini-bar-fill.status-good { background: var(--status-good) !important; }
+.mini-bar-fill.status-warning { background: var(--status-warning) !important; }
+.mini-bar-fill.status-serious { background: var(--status-serious) !important; }
+.mini-bar-fill.status-critical { background: var(--status-critical) !important; }
+
+/* Temperature/clock history mini-chart (CPU CORE, GPU CORE) — the line is
+   drawn by spark() in app.js (Catmull-Rom -> cubic Bezier), so the curve
+   is smoothed rather than a jagged point-to-point line. */
+.board-chart {
+    /* flex:1 (not 0 0 auto) — the chart stretches/shrinks within its min/max
+       bounds instead of leaving dead space behind in THERMALS when the
+       MEMORY panel is absent (making BOARD·COOLING shorter than CPU/GPU CORE). */
+    flex: 1 1 auto;
+    min-height: 50px;
+    max-height: 74px;
+    margin: 0 16px 14px;
+    display: flex;
+    flex-direction: column;
+}
+/* Once the MEMORY panel appears, BOARD·COOLING naturally grows taller, giving
+   the charts room to grow too — otherwise they'd leave dead space in CPU/GPU CORE. */
+.board-grid.has-memory .board-chart {
+    min-height: 90px;
+    max-height: 140px;
+}
+.board-chart-svg { width: 100%; flex: 1; min-height: 30px; display: block; overflow: hidden; }
+.chart-area { fill: currentColor; fill-opacity: .14; stroke: none; }
+.chart-line-temp {
+    fill: none; stroke: currentColor; stroke-width: 1.6;
+    stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke;
+}
+.chart-line-freq {
+    fill: none; stroke: #94a3b8; stroke-opacity: .45; stroke-width: 1.2; stroke-dasharray: 3 3;
+    stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke;
+}
+.board-chart-legend {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding-top: 6px; font-size: 9.5px; letter-spacing: 1.2px; color: #64748b;
+}
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-swatch { width: 10px; height: 2px; display: inline-block; background: currentColor; }
+.legend-swatch.freq { background: #94a3b8; opacity: .45; }
+
+/* Small, low-key link for switching between v1 and v2 */
+.dash-switch-link {
+    text-align: center;
+    padding: 10px 0 2px;
+    font-size: 11px;
+    letter-spacing: .3px;
+}
+.dash-switch-link a {
+    color: var(--text-muted);
+    text-decoration: none;
+    border-bottom: 1px dotted transparent;
+}
+.dash-switch-link a:hover {
+    color: var(--text-main);
+    border-bottom-color: var(--text-muted);
+}
+
+.power-breakdown {
+    margin: 12px 12px 12px;
+    background: rgba(2, 6, 23, .45);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 14px 0 16px;
+}
+.power-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.power-val {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 24px; font-weight: 700; color: var(--text-main);
+    display: flex; align-items: baseline; gap: 4px;
+}
+.power-val .unit { font-size: 13px; font-weight: 700; color: var(--text-muted); }
+.power-lbl { font-size: 13.5px; color: var(--text-muted); }
+
+/* total_power_valid == false: the sum is partial, not a genuine zero */
+.power-item.uncertain .power-val { color: var(--text-muted) !important; }
+
+@media (max-width: 900px) {
+    .board-grid { grid-template-columns: 1fr; }
+    .board-card { grid-column: auto !important; grid-row: auto !important; }
+    .power-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+}
+
+@media (max-width: 640px) {
+    .hud-container { padding: 14px; }
+    .board-hero, .board-hero.has-backfan { grid-template-columns: 1fr; }
+    .board-hero-item.align-end { align-items: flex-start; }
+    .board-hero-item .val { font-size: 30px; }
+    .power-breakdown { grid-template-columns: 1fr 1fr; padding: 12px 0; }
+    .power-val { font-size: 20px; }
+    .board-row-main { font-size: 12.5px; }
+}

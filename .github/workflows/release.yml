@@ -1,0 +1,75 @@
+name: Release static binary
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create/update (used only for manual runs)'
+        required: false
+        default: 'v0.1.0-manual'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build static apu_telemetry
+        run: |
+          if g++ -O2 -static -o apu_telemetry bc250_telemetry.cpp; then
+            echo "STATIC=1" >> "$GITHUB_ENV"
+          else
+            echo "Static link failed, falling back to dynamic build"
+            g++ -O2 -o apu_telemetry bc250_telemetry.cpp
+            echo "STATIC=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Verify binary
+        run: |
+          file apu_telemetry
+          ldd apu_telemetry || true
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package ready-to-run bundle
+        run: |
+          BUNDLE=bc250-telemetry
+          mkdir -p "dist/$BUNDLE/web"
+          cp apu_telemetry bc250_telemetry.cpp install.sh uninstall.sh apu-telemetry.service readme.md QUICKSTART.md "dist/$BUNDLE/"
+          cp -r web/. "dist/$BUNDLE/web/"
+          chmod +x "dist/$BUNDLE/apu_telemetry" "dist/$BUNDLE/install.sh" "dist/$BUNDLE/uninstall.sh"
+          tar -C dist -czf bc250-telemetry.tar.gz "$BUNDLE"
+
+      - name: Remove legacy standalone apu_telemetry asset, if present
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete-asset "${{ steps.tag.outputs.tag }}" apu_telemetry \
+            --repo "${{ github.repository }}" -y || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: bc250-telemetry.tar.gz
+          generate_release_notes: true
+
+      - name: Upload workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bc250-telemetry
+          path: bc250-telemetry.tar.gz

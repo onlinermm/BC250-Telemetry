@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="bcBody" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#141b2d"/>
+      <stop offset="1" stop-color="#0b0f19"/>
+    </linearGradient>
+    <linearGradient id="bcLine" x1="6" y1="24" x2="27" y2="9" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#fb923c"/>
+    </linearGradient>
+    <filter id="bcGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="1.6"/>
+    </filter>
+  </defs>
+
+  <rect x="2" y="2" width="28" height="28" rx="7" fill="url(#bcBody)" stroke="rgba(148,163,184,0.25)" stroke-width="1"/>
+
+  <path d="M6 19 L11 19 L14 10 L18 24 L21 15 L26 15"
+        fill="none" stroke="url(#bcLine)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"
+        filter="url(#bcGlow)" opacity="0.85"/>
+  <path d="M6 19 L11 19 L14 10 L18 24 L21 15 L26 15"
+        fill="none" stroke="url(#bcLine)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

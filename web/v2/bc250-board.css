@@ -1,0 +1,32 @@
+/* BC-250 board illustration — animation layer.
+   The SVG is inlined directly in index.html (not an <img>); this file only adds the keyframes. */
+
+@keyframes bc250-fan-spin { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+@keyframes bc250-flow     { to   { stroke-dashoffset: -240; } }
+
+#bc-fan1-blades,
+#bc-fan2-blades {
+  transform-origin: 0 0;                 /* group is already offset to the hub */
+  animation: bc250-fan-spin var(--bc-fan-duration, 2.4s) linear infinite;
+}
+
+#bc-power-flow,
+#bc-vrm-flow-cpu,
+#bc-vrm-flow-gpu {
+  animation: bc250-flow var(--bc-flow-duration, 2.8s) linear infinite;
+}
+
+/* Driven from app.js via el.style.animationDuration — never rewrite the whole
+   `animation` shorthand, since that restarts the keyframes and reads as a stutter.
+   #bc-heat            opacity/rx/ry/fill -> SMU PPT (fill switches between
+                       bc-heat-grad/-warn/-crit at the 150/180W thresholds)
+   #bc-cpu-vrm-glow    opacity       -> CPU VRM power draw
+   #bc-gpu-vrm-glow    opacity       -> GPU VRM power draw
+   --bc-fan-duration   ~2200ms/RPM   -> primary fan speed (#bc-fan1-blades)
+   #bc-backplate-fan   display       -> only shown when cooling.vrm_fan_rpm is present
+   #bc-fan2-blades     ~2200ms/RPM   -> secondary (backplate) fan speed
+   --bc-flow-duration  total power draw -> speed of the "current flow" animation on the traces */
+
+@media (prefers-reduced-motion: reduce) {
+  #bc-fan1-blades, #bc-fan2-blades, #bc-power-flow, #bc-vrm-flow-cpu, #bc-vrm-flow-gpu { animation: none; }
+}

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BC-250 HUD</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon-pulse.svg">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Background graphic -->
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <!-- Main container (no scrolling) -->
+    <div class="hud-container">
+        <!-- Header -->
+        <header class="hud-header glass-panel">
+            <div class="hud-title">BC-250 <span>HUD</span></div>
+            <div class="hud-power-stats">
+                <div class="stat" id="total-power-stat">
+                    <span class="lbl">VRM SUM (CPU+GPU)</span>
+                    <div class="val-box"><span class="val" id="total-power">0.0</span>W</div>
+                </div>
+                <div class="stat primary" id="sys-ppt-stat">
+                    <span class="lbl">TOTAL APU (SMU PPT)</span>
+                    <div class="val-box"><span class="val" id="sys-ppt">0.0</span>W</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 3-column grid (CPU, GPU, System) -->
+        <main class="hud-grid">
+
+            <!-- CPU Card -->
+            <section class="hud-card glass-panel">
+                <div class="card-title">CPU CORE</div>
+
+                <div class="card-top">
+                    <!-- Mini frequency gauge -->
+                    <div class="gauge-mini">
+                        <svg viewBox="0 0 50 50">
+                            <circle class="bg" cx="25" cy="25" r="20"></circle>
+                            <circle class="fg" cx="25" cy="25" r="20" id="cpu-freq-gauge"></circle>
+                        </svg>
+                        <div class="gauge-val"><span id="cpu-freq">0</span><span class="unit">MHz</span></div>
+                    </div>
+                    <!-- Temperature -->
+                    <div class="core-temps">
+                        <div class="sys-temp" id="sys-cpu-temp">0.0°C</div>
+                    </div>
+                </div>
+
+                <!-- VRM Table (compact) -->
+                <div class="vrm-data">
+                    <div class="vrm-title">VRM Telemetry</div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>Voltage In</span><div class="r-val"><span id="cpu-vin">0.00</span> V</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="cpu-vin-bar" data-max="13"></div></div>
+                    </div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>Voltage Out</span><div class="r-val"><span id="cpu-vout">0.000</span> V</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="cpu-vout-bar" data-max="1.2"></div></div>
+                    </div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>Current</span><div class="r-val"><span id="cpu-iout">0.0</span> A</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="cpu-iout-bar" data-max="55"></div></div>
+                    </div>
+                    <div class="vrm-row highlight">
+                        <div class="vrm-row-main"><span>Power</span><div class="r-val"><span id="cpu-pout">0.0</span> W</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="cpu-pout-bar" data-max="60"></div></div>
+                    </div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>VRM Temp</span><div class="r-val temp-vrm" id="cpu-temp-figure"><span id="cpu-temp">0</span> °C</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="cpu-temp-bar" data-max="100"></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GPU Card -->
+            <section class="hud-card glass-panel">
+                <div class="card-title">GPU CORE</div>
+
+                <div class="card-top">
+                    <div class="gauge-mini">
+                        <svg viewBox="0 0 50 50">
+                            <circle class="bg" cx="25" cy="25" r="20"></circle>
+                            <circle class="fg" cx="25" cy="25" r="20" id="gpu-freq-gauge"></circle>
+                        </svg>
+                        <div class="gauge-val"><span id="gpu-clock">0</span><span class="unit">MHz</span></div>
+                    </div>
+                    <div class="core-temps">
+                        <div class="sys-temp" id="sys-gpu-temp">0.0°C</div>
+                    </div>
+                </div>
+
+                <div class="vrm-data">
+                    <div class="vrm-title">VRM Telemetry</div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>Voltage In</span><div class="r-val"><span id="gpu-vin">0.00</span> V</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="gpu-vin-bar" data-max="13"></div></div>
+                    </div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>Voltage Out</span><div class="r-val"><span id="gpu-vout">0.000</span> V</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="gpu-vout-bar" data-max="0.9"></div></div>
+                    </div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>Current</span><div class="r-val"><span id="gpu-iout">0.0</span> A</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="gpu-iout-bar" data-max="150"></div></div>
+                    </div>
+                    <div class="vrm-row highlight">
+                        <div class="vrm-row-main"><span>Power</span><div class="r-val"><span id="gpu-pout">0.0</span> W</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="gpu-pout-bar" data-max="130"></div></div>
+                    </div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>VRM Temp</span><div class="r-val temp-vrm" id="gpu-temp-figure"><span id="gpu-temp">0</span> °C</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="gpu-temp-bar" data-max="100"></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- OTHER SENSORS Card -->
+            <section class="hud-card glass-panel">
+                <div class="card-title">OTHER SENSORS</div>
+
+                <div class="card-top">
+                    <div class="gauge-mini">
+                        <svg viewBox="0 0 50 50">
+                            <circle class="bg" cx="25" cy="25" r="20"></circle>
+                            <circle class="fg" cx="25" cy="25" r="20" id="fan-rpm-gauge"></circle>
+                        </svg>
+                        <div class="gauge-val"><span id="fan-rpm">0</span><span class="unit">RPM</span></div>
+                    </div>
+                    <div class="core-temps">
+                        <div class="sys-temp-lbl" style="font-size: 1.2rem; color: var(--text-main); font-weight: 800; text-shadow: 0 0 10px rgba(255,255,255,0.2);">CPU_FAN</div>
+                    </div>
+                </div>
+
+                <div class="vrm-data">
+                    <div class="vrm-title">Telemetry</div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>Fan PWM Signal</span><div class="r-val"><span id="fan-pwm">0</span> %</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="fan-pwm-bar" data-max="100"></div></div>
+                    </div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>NVMe Temp</span><div class="r-val temp-vrm" id="nvme-temp-figure"><span id="nvme-temp">0.0</span> °C</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="nvme-temp-bar" data-max="85"></div></div>
+                    </div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>Thermistor 14</span><div class="r-val temp-vrm" id="therm-14-figure"><span id="therm-14">0.0</span> °C</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="therm-14-bar" data-max="100"></div></div>
+                    </div>
+                    <div class="vrm-row">
+                        <div class="vrm-row-main"><span>Thermistor 15</span><div class="r-val temp-vrm" id="therm-15-figure"><span id="therm-15">0.0</span> °C</div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="therm-15-bar" data-max="100"></div></div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- position:fixed so it doesn't disturb the overflow:hidden/100vh layout -->
+    <div class="dash-switch-link">
+        <a href="/v2/">Animated board diagram (v2) →</a>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

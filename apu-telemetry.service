@@ -1,0 +1,13 @@
+[Unit]
+Description=APU Real-Time Power Telemetry Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=TELEMETRY_BIN_PATH
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

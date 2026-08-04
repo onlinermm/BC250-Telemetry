@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BC-250 HUD · v2</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon-pulse.svg">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="bc250-board.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Background blobs -->
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="hud-container">
+        <main class="board-grid" id="v2-board-grid">
+
+            <!-- BOARD · COOLING -->
+            <section class="board-card accent-good" style="grid-column:1;grid-row:1">
+                <div class="card-title accent-good">BOARD · COOLING</div>
+
+                <div class="board-hero" id="v2-board-hero">
+                    <div class="board-hero-item ppt-item" id="v2-ppt-stat">
+                        <span class="lbl">SMU PPT</span>
+                        <div class="val-box"><span class="val" id="v2-ppt">0.0</span><span class="unit unit-amber">W</span></div>
+                    </div>
+                    <div class="board-hero-item align-end">
+                        <span class="lbl">CPU FAN · <span class="fan-pwm-inline" id="v2-fan-pwm">0</span>% PWM</span>
+                        <div class="val-box"><span class="val" id="v2-fan-rpm">0</span><span class="unit">RPM</span></div>
+                    </div>
+                    <!-- Second fan: only shown if the daemon actually reports
+                         cooling.vrm_fan_rpm (a still-hypothetical field — not every build has it). -->
+                    <div class="board-hero-item align-end" id="v2-fan2-hero" style="display:none">
+                        <span class="lbl">BACK FAN · <span class="fan-pwm-inline" id="v2-fan2-pwm">0</span>% PWM</span>
+                        <div class="val-box"><span class="val" id="v2-fan2-rpm">0</span><span class="unit">RPM</span></div>
+                    </div>
+                </div>
+
+                <div class="board-svg-wrap">
+                    <!-- bc250-board.svg is inlined so JS can drive
+                         #bc-heat / #bc-cpu-vrm-glow / #bc-gpu-vrm-glow / #bc-fan1-blades /
+                         #bc-power-flow / #bc-vrm-flow-cpu / #bc-vrm-flow-gpu directly. -->
+                    <svg id="bc250-board" viewBox="118 140 1014 372" width="100%" role="img" aria-label="AMD BC-250 board diagram">
+                        <defs>
+                            <!-- #bc-heat switches between these three gradients based on the
+                                 SMU PPT thresholds (150/180W — the same ones used by .ppt-item warning/critical). -->
+                            <radialGradient id="bc-heat-grad">
+                                <stop offset="0%" stop-color="#ffd166" stop-opacity="1"></stop>
+                                <stop offset="28%" stop-color="#ff7a2f" stop-opacity=".8"></stop>
+                                <stop offset="62%" stop-color="#fb923c" stop-opacity=".35"></stop>
+                                <stop offset="100%" stop-color="#fb923c" stop-opacity="0"></stop>
+                            </radialGradient>
+                            <radialGradient id="bc-heat-grad-warn">
+                                <stop offset="0%" stop-color="#fff3c4" stop-opacity="1"></stop>
+                                <stop offset="28%" stop-color="#fbbf24" stop-opacity=".85"></stop>
+                                <stop offset="62%" stop-color="#fbbf24" stop-opacity=".4"></stop>
+                                <stop offset="100%" stop-color="#fbbf24" stop-opacity="0"></stop>
+                            </radialGradient>
+                            <radialGradient id="bc-heat-grad-crit">
+                                <stop offset="0%" stop-color="#ffd6dc" stop-opacity="1"></stop>
+                                <stop offset="28%" stop-color="#fb7185" stop-opacity=".85"></stop>
+                                <stop offset="62%" stop-color="#fb7185" stop-opacity=".4"></stop>
+                                <stop offset="100%" stop-color="#fb7185" stop-opacity="0"></stop>
+                            </radialGradient>
+                            <radialGradient id="bc-vrm-blue">
+                                <stop offset="0%" stop-color="#38bdf8" stop-opacity=".85"></stop>
+                                <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"></stop>
+                            </radialGradient>
+                            <radialGradient id="bc-vrm-orange">
+                                <stop offset="0%" stop-color="#fb923c" stop-opacity=".85"></stop>
+                                <stop offset="100%" stop-color="#fb923c" stop-opacity="0"></stop>
+                            </radialGradient>
+                            <linearGradient id="bc-pcb" x1="0" y1="0" x2="1" y2="1">
+                                <stop offset="0%" stop-color="#191d22"></stop>
+                                <stop offset="100%" stop-color="#111418"></stop>
+                            </linearGradient>
+                        </defs>
+
+                        <g id="bc-iso" transform="translate(227,154) skewX(-14) scale(1,0.9)">
+
+                            <rect x="14" y="352" width="800" height="26" rx="10" fill="#000000" opacity=".45"></rect>
+                            <rect x="0" y="336" width="800" height="14" rx="6" fill="#0a0c0e"></rect>
+                            <!-- Second (backplate) fan: hidden until JS confirms
+                                 cooling.vrm_fan_rpm is present in the telemetry JSON. -->
+                            <g id="bc-backplate-fan" transform="translate(825,150)" style="display:none">
+                                <ellipse cx="0" cy="8" rx="84" ry="84" fill="#000" opacity=".3"></ellipse>
+                                <rect x="-84" y="-84" width="168" height="168" rx="12" fill="#171b1f" stroke="#3a434c"></rect>
+                                <circle r="78" fill="#0e1216" stroke="#2f373f"></circle>
+                                <g id="bc-fan2-blades">
+                                    <g fill="#39424b" stroke="#485259" stroke-width="1">
+                                        <rect x="-11" y="-73" width="22" height="57" rx="11"></rect>
+                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(40)"></rect>
+                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(80)"></rect>
+                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(120)"></rect>
+                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(160)"></rect>
+                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(200)"></rect>
+                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(240)"></rect>
+                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(280)"></rect>
+                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(320)"></rect>
+                                    </g>
+                                    <circle r="7" fill="#4d5760"></circle>
+                                </g>
+                                <circle r="19" fill="#20262c" stroke="#38414a"></circle>
+                                <circle r="12" fill="#2a323a" stroke="#3d4750"></circle>
+                            </g>
+                            <rect x="0" y="0" width="800" height="340" rx="8" fill="url(#bc-pcb)" stroke="#2a3138" stroke-width="1.5"></rect>
+                            <rect x="16" y="14" width="768" height="312" rx="6" fill="none" stroke="#20262c"></rect>
+                            <g fill="#0b0e11" stroke="#2c333a">
+                                <circle cx="16" cy="16" r="5"></circle>
+                                <circle cx="784" cy="16" r="5"></circle>
+                                <circle cx="16" cy="324" r="5"></circle>
+                                <circle cx="784" cy="324" r="5"></circle>
+                                <circle cx="322" cy="34" r="4.5"></circle>
+                                <circle cx="570" cy="34" r="4.5"></circle>
+                                <circle cx="322" cy="240" r="4.5"></circle>
+                                <circle cx="570" cy="240" r="4.5"></circle>
+                            </g>
+                            <g fill="none" stroke="#1e252b" stroke-width="1" opacity=".9">
+                                <path d="M 120 300 H 560"></path>
+                                <path d="M 120 312 H 560"></path>
+                                <path d="M 210 60 V 250"></path>
+                                <path d="M 222 60 V 250"></path>
+                            </g>
+
+                            <g id="bc-power-flow-group" fill="none" stroke="#fbbf24" stroke-width="2.5" stroke-dasharray="10 14" stroke-linecap="round" opacity=".9">
+                                <path id="bc-power-flow" d="M 630 264 L 772 264 L 772 14 L 292 14 L 292 28"></path>
+                            </g>
+
+                            <g>
+                                <rect x="2" y="36" width="26" height="26" rx="2" fill="#16191d" stroke="#2a3138"></rect>
+                                <rect x="0" y="140" width="32" height="10" fill="#0e1114"></rect>
+                                <rect x="2" y="100" width="30" height="40" rx="3" fill="#2b3239" stroke="#3c444c"></rect>
+                                <rect x="7" y="106" width="20" height="12" rx="1.5" fill="#0c0f12"></rect>
+                                <rect x="7" y="122" width="20" height="12" rx="1.5" fill="#0c0f12"></rect>
+                                <rect x="0" y="192" width="32" height="10" fill="#0e1114"></rect>
+                                <rect x="2" y="152" width="30" height="40" rx="3" fill="#233b52" stroke="#3a5f86"></rect>
+                                <rect x="7" y="158" width="20" height="12" rx="1.5" fill="#0c0f12"></rect>
+                                <rect x="7" y="174" width="20" height="12" rx="1.5" fill="#0c0f12"></rect>
+                                <rect x="0" y="244" width="32" height="12" fill="#0e1114"></rect>
+                                <rect x="2" y="200" width="30" height="44" rx="3" fill="#2b3239" stroke="#3c444c"></rect>
+                                <rect x="7" y="208" width="20" height="26" rx="2" fill="#0c0f12"></rect>
+                                <circle id="bc-lan-led" cx="12" cy="239" r="3.4" fill="#34d399"></circle>
+                            </g>
+
+                            <g>
+                                <rect x="58" y="234" width="44" height="10" fill="#0f1216"></rect>
+                                <rect x="58" y="26" width="44" height="208" rx="3" fill="#1d2329" stroke="#303841"></rect>
+                                <rect x="65" y="34" width="30" height="188" rx="2" fill="#2a323a"></rect>
+                                <rect x="66" y="42" width="28" height="60" rx="2" fill="#333c45"></rect>
+                                <rect x="66" y="110" width="28" height="60" rx="2" fill="#333c45"></rect>
+                                <rect x="54" y="224" width="52" height="14" rx="2" fill="#2f3840" stroke="#3d4750"></rect>
+                                <circle cx="80" cy="32" r="4" fill="#232a31" stroke="#343d46"></circle>
+                            </g>
+
+                            <g>
+                                <rect x="137" y="198" width="59" height="10" fill="#0f1216"></rect>
+                                <rect x="137" y="155" width="59" height="43" rx="3" fill="#20262c" stroke="#333b43"></rect>
+                                <rect x="144" y="161" width="45" height="31" rx="2" fill="#171c21"></rect>
+                                <rect x="240" y="251" width="49" height="8" fill="#0f1216"></rect>
+                                <rect x="240" y="214" width="49" height="37" rx="2" fill="#20262c" stroke="#333b43"></rect>
+                                <rect x="148" y="227" width="30" height="7" fill="#0f1216"></rect>
+                                <rect x="148" y="205" width="30" height="22" rx="2" fill="#20262c" stroke="#333b43"></rect>
+                                <rect x="200" y="196" width="20" height="6" fill="#0f1216"></rect>
+                                <rect x="200" y="180" width="20" height="16" rx="2" fill="#20262c" stroke="#333b43"></rect>
+                            </g>
+
+                            <g fill="#16191d" stroke="#2a3138">
+                                <rect x="44" y="250" width="40" height="14" rx="2"></rect>
+                                <rect x="96" y="250" width="34" height="14" rx="2"></rect>
+                                <rect x="140" y="250" width="46" height="14" rx="2"></rect>
+                                <rect x="44" y="282" width="52" height="12" rx="2"></rect>
+                            </g>
+
+                            <g>
+                                <rect x="250" y="30" width="22" height="128" rx="3" fill="#4b535b" opacity=".75"></rect>
+                                <g>
+                                    <rect x="282" y="52" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="282" y="34" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="282" y="74" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="282" y="56" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="282" y="96" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="282" y="78" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="282" y="118" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="282" y="100" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="282" y="140" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="282" y="122" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="282" y="162" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="282" y="144" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                </g>
+                                <g fill="#232a31" stroke="#333c45">
+                                    <rect x="226" y="36" width="16" height="14" rx="2"></rect>
+                                    <rect x="226" y="56" width="16" height="14" rx="2"></rect>
+                                    <rect x="226" y="76" width="16" height="14" rx="2"></rect>
+                                    <rect x="226" y="96" width="16" height="14" rx="2"></rect>
+                                </g>
+                            </g>
+
+                            <g>
+                                <ellipse id="bc-cpu-vrm-glow" cx="620" cy="86" rx="66" ry="50" fill="url(#bc-vrm-blue)" opacity=".28"></ellipse>
+                                <ellipse id="bc-gpu-vrm-glow" cx="620" cy="172" rx="68" ry="74" fill="url(#bc-vrm-orange)" opacity=".28"></ellipse>
+                                <rect x="646" y="62" width="22" height="152" rx="3" fill="#4b535b" opacity=".75"></rect>
+                                <g>
+                                    <rect x="604" y="84" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="604" y="66" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="604" y="106" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="604" y="88" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="604" y="128" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="604" y="110" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="604" y="150" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="604" y="132" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="604" y="172" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="604" y="154" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="604" y="194" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="604" y="176" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                    <rect x="604" y="216" width="26" height="7" fill="#0f1216"></rect>
+                                    <rect x="604" y="198" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                </g>
+                                <g fill="#232a31" stroke="#333c45">
+                                    <rect x="676" y="96" width="16" height="14" rx="2"></rect>
+                                    <rect x="676" y="116" width="16" height="14" rx="2"></rect>
+                                    <rect x="676" y="136" width="16" height="14" rx="2"></rect>
+                                    <rect x="676" y="156" width="16" height="14" rx="2"></rect>
+                                </g>
+                            </g>
+
+                            <g>
+                                <circle cx="700" cy="44" r="21" fill="#20262c" stroke="#39414a"></circle>
+                                <circle cx="700" cy="44" r="14" fill="#343c44" stroke="#464f59"></circle>
+                                <circle cx="750" cy="30" r="14" fill="#12161a" stroke="#3d4750" stroke-width="2"></circle>
+                                <circle cx="750" cy="64" r="14" fill="#12161a" stroke="#3d4750" stroke-width="2"></circle>
+                            </g>
+
+                            <g>
+                                <rect x="385" y="215" width="126" height="14" fill="#14181c"></rect>
+                                <rect x="385" y="95" width="126" height="120" rx="3" fill="#242b32" stroke="#3b444d"></rect>
+                                <rect x="404" y="116" width="88" height="78" rx="2" fill="#565f68" stroke="#6b757e"></rect>
+                                <rect x="414" y="126" width="68" height="58" rx="1" fill="#4a535b"></rect>
+                            </g>
+
+                            <g>
+                                <rect x="322" y="300" width="254" height="30" fill="#14181c"></rect>
+                                <rect x="323" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="338" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="353" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="368" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="383" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="398" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="413" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="428" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="443" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="458" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="473" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="488" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="503" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="518" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="533" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="548" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="563" y="300" width="9" height="30" fill="#1c2126"></rect>
+                                <rect x="322" y="40" width="254" height="260" fill="#22272d"></rect>
+                                <rect x="323" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="338" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="353" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="368" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="383" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="398" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="413" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="428" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="443" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="458" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="473" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="488" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="503" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="518" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="533" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="548" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="563" y="41" width="9" height="258" fill="#343b43"></rect>
+                                <rect x="322" y="40" width="254" height="260" fill="none" stroke="#454e58"></rect>
+                                <ellipse id="bc-heat" cx="448" cy="155" rx="140" ry="112" fill="url(#bc-heat-grad)" opacity=".5"></ellipse>
+                                <rect x="385" y="95" width="126" height="120" rx="3" fill="none" stroke="#ffb27a" stroke-width="1.5" stroke-dasharray="5 5" opacity=".65"></rect>
+                            </g>
+
+                            <g fill="none" stroke-width="2.5" stroke-dasharray="9 12" stroke-linecap="round" opacity=".95">
+                                <path id="bc-vrm-flow-cpu" d="M 600 96 L 584 96 L 584 250 L 498 250" stroke="#38bdf8"></path>
+                                <path id="bc-vrm-flow-gpu" d="M 600 186 L 592 186 L 592 264 L 498 264" stroke="#fb923c"></path>
+                            </g>
+
+                            <g id="bc-fans" transform="translate(0,-58)">
+                                <g transform="translate(449,170)">
+                                    <ellipse cx="0" cy="8" rx="122" ry="122" fill="#000" opacity=".32"></ellipse>
+                                    <rect x="-122" y="-122" width="244" height="244" rx="16" fill="#171b1f" fill-opacity=".78" stroke="#3a434c"></rect>
+                                    <circle r="114" fill="#0e1216" fill-opacity=".86" stroke="#2f373f"></circle>
+                                    <g id="bc-fan1-blades">
+                                        <g fill="#39424b" stroke="#485259" stroke-width="1">
+                                            <rect x="-15" y="-106" width="30" height="82" rx="15"></rect>
+                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(40)"></rect>
+                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(80)"></rect>
+                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(120)"></rect>
+                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(160)"></rect>
+                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(200)"></rect>
+                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(240)"></rect>
+                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(280)"></rect>
+                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(320)"></rect>
+                                        </g>
+                                        <circle r="10" fill="#4d5760"></circle>
+                                    </g>
+                                    <circle r="28" fill="#20262c" stroke="#38414a"></circle>
+                                    <circle r="17" fill="#2a323a" stroke="#3d4750"></circle>
+                                </g>
+                            </g>
+
+                            <g>
+                                <rect x="588" y="296" width="86" height="26" fill="#0e1114"></rect>
+                                <rect x="588" y="266" width="86" height="30" rx="4" fill="#242a31" stroke="#39414a"></rect>
+                                <g fill="#0b0e11">
+                                    <rect x="594" y="271" width="17" height="9" rx="1.5"></rect>
+                                    <rect x="615" y="271" width="17" height="9" rx="1.5"></rect>
+                                    <rect x="636" y="271" width="17" height="9" rx="1.5"></rect>
+                                    <rect x="657" y="271" width="11" height="9" rx="1.5"></rect>
+                                    <rect x="594" y="283" width="17" height="9" rx="1.5"></rect>
+                                    <rect x="615" y="283" width="17" height="9" rx="1.5"></rect>
+                                    <rect x="636" y="283" width="17" height="9" rx="1.5"></rect>
+                                    <rect x="657" y="283" width="11" height="9" rx="1.5"></rect>
+                                </g>
+                                <rect x="682" y="294" width="54" height="24" fill="#0e1114"></rect>
+                                <rect x="682" y="266" width="54" height="28" rx="3" fill="#1f252b" stroke="#333b43"></rect>
+                                <rect x="744" y="294" width="50" height="24" fill="#0e1114"></rect>
+                                <rect x="744" y="266" width="50" height="28" rx="3" fill="#1f252b" stroke="#333b43"></rect>
+                            </g>
+
+                        </g>
+                    </svg>
+                </div>
+
+                <!-- Memory/Fabric: same idea, only shown when software.df_pstate / mem_clock_mhz are present. -->
+                <div class="board-panel" id="v2-memory-panel" style="display:none">
+                    <div class="panel-title">MEMORY</div>
+                    <div class="board-row">
+                        <div class="board-row-main">
+                            <span>DF P-State · GDDR6/Fabric</span>
+                            <span class="r-val"><span id="v2-mem-state">P0</span><span class="accent-gpu-text"><span id="v2-mem-clock">0</span> MHz</span></span>
+                        </div>
+                        <div class="mini-bar"><div class="mini-bar-fill accent-gpu-bg" id="v2-mem-bar" data-max="100"></div></div>
+                    </div>
+                </div>
+
+                <div class="board-panel">
+                    <div class="panel-title">THERMALS</div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Board Temp</span><span class="r-val" id="v2-board-temp-figure"><span id="v2-board-temp">0.0</span> °C</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-board-temp-bar" data-max="100"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>NVMe Temp</span><span class="r-val" id="v2-nvme-temp-figure"><span id="v2-nvme-temp">0.0</span> °C</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-nvme-temp-bar" data-max="85"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>VRM MOS</span><span class="r-val" id="v2-vrmmos-temp-figure"><span id="v2-vrmmos-temp">0.0</span> °C</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-vrmmos-temp-bar" data-max="100"></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CPU CORE -->
+            <section class="board-card accent-cpu" style="grid-column:2;grid-row:1">
+                <div class="card-title accent-cpu">CPU CORE</div>
+                <div class="board-hero">
+                    <div class="board-hero-item">
+                        <span class="lbl">CPU DIE TEMP</span>
+                        <div class="val-box"><span class="val" id="v2-cpu-die">0.0</span><span class="unit" id="v2-cpu-die-unit">°C</span></div>
+                    </div>
+                    <div class="board-hero-item align-end">
+                        <span class="lbl">CORE CLOCK</span>
+                        <div class="val-box"><span class="val accent-cpu-text" id="v2-cpu-freq">0</span><span class="unit accent-cpu-text" id="v2-cpu-freq-unit">MHz</span></div>
+                    </div>
+                </div>
+
+                <!-- ~30s of history (43 points at a 700ms poll interval), smoothed via
+                     Catmull-Rom -> cubic Bezier (spark() in app.js) rather than drawn as straight lines. -->
+                <div class="board-chart">
+                    <svg viewBox="0 0 200 100" preserveAspectRatio="none" class="board-chart-svg">
+                        <path class="chart-area accent-cpu-text" id="v2-cpu-chart-area"></path>
+                        <path class="chart-line-temp accent-cpu-text" id="v2-cpu-chart-temp"></path>
+                        <path class="chart-line-freq" id="v2-cpu-chart-freq"></path>
+                    </svg>
+                    <div class="board-chart-legend">
+                        <span class="legend-item accent-cpu-text"><span class="legend-swatch temp"></span>TEMP</span>
+                        <span class="legend-item"><span class="legend-swatch freq"></span>CLOCK</span>
+                        <span class="legend-window">LAST 30S</span>
+                    </div>
+                </div>
+
+                <div class="board-panel">
+                    <div class="panel-title">VRM TELEMETRY</div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Voltage In</span><span class="r-val"><span id="v2-cpu-vin">0.00</span> V</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-cpu-vin-bar" data-max="13"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Voltage Out</span><span class="r-val"><span id="v2-cpu-vout">0.000</span> V</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-cpu-vout-bar" data-max="1.2"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Current</span><span class="r-val"><span id="v2-cpu-iout">0.0</span> A</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-cpu-iout-bar" data-max="55"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Power</span><span class="r-val accent-cpu-text"><span id="v2-cpu-pout">0.0</span> W</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill accent-cpu-bg" id="v2-cpu-pout-bar" data-max="60"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>VRM Temp</span><span class="r-val" id="v2-cpu-vrmtemp-figure"><span id="v2-cpu-vrmtemp">0</span> °C</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-cpu-vrmtemp-bar" data-max="100"></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GPU CORE -->
+            <section class="board-card accent-gpu" style="grid-column:3;grid-row:1">
+                <div class="card-title accent-gpu">GPU CORE</div>
+                <div class="board-hero">
+                    <div class="board-hero-item">
+                        <span class="lbl">GPU DIE TEMP</span>
+                        <div class="val-box"><span class="val" id="v2-gpu-die">0.0</span><span class="unit" id="v2-gpu-die-unit">°C</span></div>
+                    </div>
+                    <div class="board-hero-item align-end">
+                        <span class="lbl">GPU SCLK</span>
+                        <div class="val-box"><span class="val accent-gpu-text" id="v2-gpu-clock">0</span><span class="unit accent-gpu-text" id="v2-gpu-clock-unit">MHz</span></div>
+                    </div>
+                </div>
+
+                <div class="board-chart">
+                    <svg viewBox="0 0 200 100" preserveAspectRatio="none" class="board-chart-svg">
+                        <path class="chart-area accent-gpu-text" id="v2-gpu-chart-area"></path>
+                        <path class="chart-line-temp accent-gpu-text" id="v2-gpu-chart-temp"></path>
+                        <path class="chart-line-freq" id="v2-gpu-chart-freq"></path>
+                    </svg>
+                    <div class="board-chart-legend">
+                        <span class="legend-item accent-gpu-text"><span class="legend-swatch temp"></span>TEMP</span>
+                        <span class="legend-item"><span class="legend-swatch freq"></span>CLOCK</span>
+                        <span class="legend-window">LAST 30S</span>
+                    </div>
+                </div>
+
+                <div class="board-panel">
+                    <div class="panel-title">VRM TELEMETRY</div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Voltage In</span><span class="r-val"><span id="v2-gpu-vin">0.00</span> V</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-gpu-vin-bar" data-max="13"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Voltage Out</span><span class="r-val"><span id="v2-gpu-vout">0.000</span> V</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-gpu-vout-bar" data-max="0.9"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Current</span><span class="r-val"><span id="v2-gpu-iout">0.0</span> A</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-gpu-iout-bar" data-max="150"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Power</span><span class="r-val accent-gpu-text"><span id="v2-gpu-pout">0.0</span> W</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill accent-gpu-bg" id="v2-gpu-pout-bar" data-max="130"></div></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>VRM Temp</span><span class="r-val" id="v2-gpu-vrmtemp-figure"><span id="v2-gpu-vrmtemp">0</span> °C</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-gpu-vrmtemp-bar" data-max="100"></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- POWER BREAKDOWN -->
+            <section class="board-card accent-amber" style="grid-column:1 / span 3;grid-row:2">
+                <div class="card-title accent-amber">POWER BREAKDOWN</div>
+                <div class="power-breakdown">
+                    <div class="power-item">
+                        <div class="power-val"><span id="v2-rail-vin">0.00</span><span class="unit">V</span></div>
+                        <div class="power-lbl">Rail Voltage</div>
+                    </div>
+                    <div class="power-item">
+                        <div class="power-val accent-cpu-text"><span id="v2-power-cpu">0.0</span><span class="unit">W</span></div>
+                        <div class="power-lbl">CPU VRM</div>
+                    </div>
+                    <div class="power-item">
+                        <div class="power-val accent-gpu-text"><span id="v2-power-gpu">0.0</span><span class="unit">W</span></div>
+                        <div class="power-lbl">GPU VRM</div>
+                    </div>
+                    <div class="power-item">
+                        <div class="power-val accent-amber-text" id="v2-power-sum-box"><span id="v2-power-sum">0.0</span><span class="unit">W</span></div>
+                        <div class="power-lbl" id="v2-power-sum-lbl">VRM Sum (CPU+GPU)</div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <div class="dash-switch-link">
+            <!-- NOT "/" — if BC250_DEFAULT_DASHBOARD=v2, server.py 302-redirects
+                 "/" straight back to "/v2/", which would make this link a no-op. /index.html
+                 always serves v1 directly, bypassing the root redirect rule. -->
+            <a href="/index.html">← Classic dashboard</a>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,237 @@
+:root {
+    --bg-color: #0b0f19;
+    --glass-bg: rgba(15, 23, 42, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.05);
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-glow: rgba(56, 189, 248, 0.4);
+
+    --status-good: #34d399;
+    --status-warning: #fbbf24;
+    --status-serious: #fb923c;
+    --status-critical: #fb7185;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Inter', sans-serif;
+    font-variant-numeric: tabular-nums;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+
+    /* CORE DESIGN CONSTRAINT: no scrolling allowed — everything stays centered on one screen */
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+/* Background Effects */
+.background-blobs {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    z-index: 0; pointer-events: none; overflow: hidden;
+}
+.blob {
+    position: absolute; filter: blur(120px); opacity: 0.4; border-radius: 50%;
+}
+.blob-1 { top: -10%; left: -10%; width: 50vw; height: 50vw; background: rgba(56, 189, 248, 0.2); }
+.blob-2 { bottom: -10%; right: -10%; width: 50vw; height: 50vw; background: rgba(14, 165, 233, 0.15); }
+
+/* Small, understated link to v2. position:fixed keeps it out of the body's
+   flex layout, so it can't overflow the strict overflow:hidden/100vh setup. */
+.dash-switch-link {
+    position: fixed;
+    left: 0; right: 0; bottom: 6px;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: .3px;
+    z-index: 1;
+}
+.dash-switch-link a {
+    color: var(--text-muted);
+    text-decoration: none;
+    border-bottom: 1px dotted transparent;
+}
+.dash-switch-link a:hover {
+    color: var(--text-main);
+    border-bottom-color: var(--text-muted);
+}
+
+/* Main Wrapper */
+.hud-container {
+    width: 100%;
+    max-width: 1300px; /* A bit wider to fit 3 columns */
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    z-index: 1;
+}
+
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+
+/* HEADER */
+.hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 2rem;
+}
+.hud-title {
+    font-size: 2rem; font-weight: 800; letter-spacing: -1px;
+}
+.hud-title span {
+    color: var(--accent); text-shadow: 0 0 15px var(--accent-glow);
+}
+.hud-power-stats {
+    display: flex; gap: 3rem; align-items: flex-end;
+}
+.stat { display: flex; flex-direction: column; align-items: flex-end; }
+.stat .lbl { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.2rem; }
+.stat .val-box { font-size: 1.5rem; font-weight: 600; }
+.stat.primary .val-box { font-size: 2.5rem; font-weight: 800; color: var(--accent); text-shadow: 0 0 15px var(--accent-glow); line-height: 1; }
+
+/* total_power_valid == false: one of the CPU/GPU I2C readings is currently
+   glitching — the total is unknown, not 0. Dim it instead of showing a false zero. */
+.stat.uncertain .val-box { color: var(--text-muted); text-shadow: none; }
+
+/* TOTAL APU (SMU PPT): warning colors as it approaches power limits */
+.stat.primary.ppt-warning .val-box { color: var(--status-warning); text-shadow: 0 0 15px rgba(251, 191, 36, 0.4); }
+.stat.primary.ppt-critical .val-box { color: var(--status-critical); text-shadow: 0 0 15px rgba(251, 113, 133, 0.4); animation: ppt-blink 0.8s ease-in-out infinite; }
+@keyframes ppt-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* MAIN GRID (3 Columns) */
+.hud-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: auto auto 1fr; /* title / gauge block / telemetry */
+    gap: 1.5rem;
+}
+
+/* CARDS: subgrid inherits row tracks from .hud-grid, so matching sections
+   (title/top/data) across all three cards automatically line up in height —
+   no need to hand-tune fixed values or add filler rows */
+.hud-card {
+    padding: 1.5rem;
+    display: grid;
+    grid-row: span 3;
+    grid-template-rows: subgrid;
+    row-gap: 1.2rem;
+}
+.card-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: var(--text-main);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 0.8rem;
+    text-align: center;
+}
+
+/* SVG MINI GAUGES & TEMPS */
+.card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 0.5rem;
+}
+.gauge-mini {
+    position: relative;
+    width: 90px;
+    height: 90px;
+}
+.gauge-mini svg {
+    width: 100%; height: 100%;
+    transform: rotate(-90deg); /* So the fill starts from the top */
+}
+.gauge-mini circle {
+    fill: none; stroke-width: 4; stroke-linecap: round;
+}
+.gauge-mini .bg { stroke: rgba(255,255,255,0.08); }
+.gauge-mini .fg {
+    stroke: var(--accent);
+    stroke-dasharray: 125.66; /* Circumference of the r=20 circle */
+    stroke-dashoffset: 125.66;
+    transition: stroke-dashoffset 0.1s linear;
+}
+.gauge-val {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    font-weight: 800; font-size: 1.1rem; text-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+.gauge-val .unit { font-size: 0.6rem; color: var(--text-muted); font-weight: 600; }
+
+.core-temps { text-align: right; }
+.sys-temp { font-size: 2.2rem; font-weight: 800; text-shadow: 0 0 10px rgba(255,255,255,0.1); }
+.sys-temp-lbl { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: -0.2rem;}
+
+/* VRM ROWS (Table style) */
+.vrm-data {
+    background: rgba(0,0,0,0.25);
+    border-radius: 12px;
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.vrm-title {
+    font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px;
+    margin-bottom: 0.8rem; text-align: center;
+}
+.vrm-row {
+    display: flex; flex-direction: column; gap: 0.3rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.vrm-row:last-child { border-bottom: none; }
+.vrm-row-main {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.95rem; font-weight: 600;
+}
+.vrm-row-main span:first-child { color: var(--text-muted); font-weight: 400; }
+.r-val { font-size: 1.05rem; }
+.vrm-row.highlight { background: rgba(56, 189, 248, 0.05); border-radius: 6px; padding: 0.4rem; margin: 0 -0.4rem; }
+.vrm-row.highlight .r-val { color: var(--accent); font-weight: 800; text-shadow: 0 0 10px var(--accent-glow);}
+.temp-vrm { font-weight: 800; }
+
+/* Mini level indicator below each VRM/temperature value */
+.mini-bar {
+    width: 100%; height: 4px; border-radius: 2px;
+    background: rgba(255,255,255,0.08); overflow: hidden;
+}
+.mini-bar-fill {
+    height: 100%; width: 0%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.15s linear, background-color 0.2s linear;
+}
+
+/* Temperature color semantics: good → warning → serious → critical */
+.temp-vrm.status-good, .sys-temp.status-good { color: var(--status-good); }
+.temp-vrm.status-warning, .sys-temp.status-warning { color: var(--status-warning); }
+.temp-vrm.status-serious, .sys-temp.status-serious { color: var(--status-serious); }
+.temp-vrm.status-critical, .sys-temp.status-critical { color: var(--status-critical); text-shadow: 0 0 10px rgba(251, 113, 133, 0.3); }
+
+.mini-bar-fill.status-good { background: var(--status-good); }
+.mini-bar-fill.status-warning { background: var(--status-warning); }
+.mini-bar-fill.status-serious { background: var(--status-serious); }
+.mini-bar-fill.status-critical { background: var(--status-critical); }
+
+/* RESPONSIVE: for when this is opened on a phone */
+@media (max-width: 900px) {
+    body { overflow: auto; height: auto; align-items: flex-start; padding: 2rem 0; }
+    .hud-grid { grid-template-columns: 1fr; }
+    .hud-card { grid-row: auto; grid-template-rows: none; }
+    .hud-header { flex-direction: column; text-align: center; gap: 1.5rem; }
+    .hud-power-stats { flex-direction: column; align-items: center; gap: 1.5rem; }
+    .stat { align-items: center; }
+}
