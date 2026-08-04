@@ -23,11 +23,10 @@ jobs:
       - name: Build static apu_telemetry
         run: |
           if g++ -O2 -static -o apu_telemetry bc250_telemetry.cpp; then
-            echo "STATIC=1" >> "$GITHUB_ENV"
+            echo "Static build succeeded." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Static link failed, falling back to dynamic build"
+            echo "⚠️ Static link failed, falling back to dynamic build — this binary may not run on distros without matching shared libs." >> "$GITHUB_STEP_SUMMARY"
             g++ -O2 -o apu_telemetry bc250_telemetry.cpp
-            echo "STATIC=0" >> "$GITHUB_ENV"
           fi
 
       - name: Verify binary
@@ -48,22 +47,16 @@ jobs:
         run: |
           BUNDLE=bc250-telemetry
           mkdir -p "dist/$BUNDLE/web"
-          cp apu_telemetry bc250_telemetry.cpp install.sh uninstall.sh apu-telemetry.service readme.md QUICKSTART.md "dist/$BUNDLE/"
+          cp apu_telemetry bc250_telemetry.cpp install.sh install-lib.sh uninstall.sh apu-telemetry.service README.md "dist/$BUNDLE/"
           cp -r web/. "dist/$BUNDLE/web/"
           chmod +x "dist/$BUNDLE/apu_telemetry" "dist/$BUNDLE/install.sh" "dist/$BUNDLE/uninstall.sh"
           tar -C dist -czf bc250-telemetry.tar.gz "$BUNDLE"
-
-      - name: Remove legacy standalone apu_telemetry asset, if present
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release delete-asset "${{ steps.tag.outputs.tag }}" apu_telemetry \
-            --repo "${{ github.repository }}" -y || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: bc250-telemetry.tar.gz
           generate_release_notes: true
 
