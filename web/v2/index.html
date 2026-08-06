@@ -348,7 +348,7 @@
                 </div>
 
                 <div class="board-panel">
-                    <div class="panel-title">THERMALS</div>
+                    <div class="panel-title">THERMALS · POWER</div>
                     <div class="board-row">
                         <div class="board-row-main"><span>Board Temp</span><span class="r-val" id="v2-board-temp-figure"><span id="v2-board-temp">0.0</span> °C</span></div>
                         <div class="mini-bar"><div class="mini-bar-fill" id="v2-board-temp-bar" data-max="100"></div></div>
@@ -361,12 +361,20 @@
                         <div class="board-row-main"><span>VRM MOS</span><span class="r-val" id="v2-vrmmos-temp-figure"><span id="v2-vrmmos-temp">0.0</span> °C</span></div>
                         <div class="mini-bar"><div class="mini-bar-fill" id="v2-vrmmos-temp-bar" data-max="100"></div></div>
                     </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Rail Voltage</span><span class="r-val"><span id="v2-rail-vin">0.00</span> V</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-rail-vin-bar" data-max="13"></div></div>
+                    </div>
+                    <div class="board-row" id="v2-power-sum-row">
+                        <div class="board-row-main"><span id="v2-power-sum-lbl">VRM Sum (CPU+GPU)</span><span class="r-val accent-amber-text" id="v2-power-sum-box"><span id="v2-power-sum">0.0</span> W</span></div>
+                        <div class="mini-bar"><div class="mini-bar-fill accent-amber-bg" id="v2-power-sum-bar" data-max="190"></div></div>
+                    </div>
                 </div>
             </section>
 
             <!-- CPU CORE -->
             <section class="board-card accent-cpu" style="grid-column:2;grid-row:1">
-                <div class="card-title accent-cpu">CPU CORE</div>
+                <div class="card-title accent-cpu">CPU CORE<span class="core-badge" id="v2-cpu-cores-badge" style="display:none" title="8 cores = full Zen2 CCX (EFI core unlock). 6 = commonly cited factory baseline. Either can vary per unit."><span class="core-badge-val" id="v2-cpu-cores">6</span><span class="core-badge-unit">/8 CORES</span></span></div>
                 <div class="board-hero">
                     <div class="board-hero-item">
                         <span class="lbl">CPU DIE TEMP</span>
@@ -416,11 +424,22 @@
                         <div class="mini-bar"><div class="mini-bar-fill" id="v2-cpu-vrmtemp-bar" data-max="100"></div></div>
                     </div>
                 </div>
+
+                <!-- bc250-smu-oc: only shown if /etc/bc250-smu-oc.conf is actually present on the host. -->
+                <div class="board-panel" id="v2-cpu-oc-panel" style="display:none">
+                    <div class="panel-title">OVERCLOCK · bc250-smu-oc<span class="oc-dot" id="v2-cpu-oc-dot" title="Inactive"></span></div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Target Clock</span><span class="r-val accent-cpu-text" id="v2-cpu-oc-freq"><span id="v2-cpu-oc-freq-val">0</span> MHz</span></div>
+                    </div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Temp Limit</span><span class="r-val"><span id="v2-cpu-oc-maxtemp">0</span> °C</span></div>
+                    </div>
+                </div>
             </section>
 
             <!-- GPU CORE -->
             <section class="board-card accent-gpu" style="grid-column:3;grid-row:1">
-                <div class="card-title accent-gpu">GPU CORE</div>
+                <div class="card-title accent-gpu">GPU CORE<span class="core-badge" id="v2-gpu-cus-badge" style="display:none" title="40 CU = full RDNA2 die (WGP unlock). 24 = commonly cited factory baseline. Either can vary per unit."><span class="core-badge-val" id="v2-gpu-cus">24</span><span class="core-badge-unit">/40 CU</span></span></div>
                 <div class="board-hero">
                     <div class="board-hero-item">
                         <span class="lbl">GPU DIE TEMP</span>
@@ -468,27 +487,15 @@
                         <div class="mini-bar"><div class="mini-bar-fill" id="v2-gpu-vrmtemp-bar" data-max="100"></div></div>
                     </div>
                 </div>
-            </section>
 
-            <!-- POWER BREAKDOWN -->
-            <section class="board-card accent-amber" style="grid-column:1 / span 3;grid-row:2">
-                <div class="card-title accent-amber">POWER BREAKDOWN</div>
-                <div class="power-breakdown">
-                    <div class="power-item">
-                        <div class="power-val"><span id="v2-rail-vin">0.00</span><span class="unit">V</span></div>
-                        <div class="power-lbl">Rail Voltage</div>
+                <!-- cyan-skillfish-governor-smu: only shown if /etc/cyan-skillfish-governor-smu/config.toml is actually present. -->
+                <div class="board-panel" id="v2-gpu-oc-panel" style="display:none">
+                    <div class="panel-title">OVERCLOCK · cyan-skillfish-governor<span class="oc-dot" id="v2-gpu-oc-dot" title="Inactive"></span></div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Max Clock</span><span class="r-val accent-gpu-text"><span id="v2-gpu-oc-maxfreq">0</span> MHz</span></div>
                     </div>
-                    <div class="power-item">
-                        <div class="power-val accent-cpu-text"><span id="v2-power-cpu">0.0</span><span class="unit">W</span></div>
-                        <div class="power-lbl">CPU VRM</div>
-                    </div>
-                    <div class="power-item">
-                        <div class="power-val accent-gpu-text"><span id="v2-power-gpu">0.0</span><span class="unit">W</span></div>
-                        <div class="power-lbl">GPU VRM</div>
-                    </div>
-                    <div class="power-item">
-                        <div class="power-val accent-amber-text" id="v2-power-sum-box"><span id="v2-power-sum">0.0</span><span class="unit">W</span></div>
-                        <div class="power-lbl" id="v2-power-sum-lbl">VRM Sum (CPU+GPU)</div>
+                    <div class="board-row">
+                        <div class="board-row-main"><span>Min Clock</span><span class="r-val"><span id="v2-gpu-oc-minfreq">0</span> MHz</span></div>
                     </div>
                 </div>
             </section>

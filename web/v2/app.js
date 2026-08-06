@@ -78,6 +78,22 @@ function setStatusClass(id, value, thresholds) {
     el.dataset.status = status;
 }
 
+// stockAt/maxAt are real reference points for this SKU (6 cores / 24 CU is
+// the commonly cited factory baseline per bc250-toolkit and
+// bc250-cu-live-manager; 8 cores / 40 CU is the architectural ceiling — same
+// silicon in every BC-250). A permanent partial unlock above stock (say
+// 38/40) isn't broken or incomplete, it's just this die's real ceiling — so
+// it gets its own steady color rather than being lumped in with either end.
+function setCoreBadgeClass(id, count, stockAt, maxAt) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const cls = count >= maxAt ? 'cores-maxed' : count > stockAt ? 'cores-partial' : 'cores-stock';
+    if (el.dataset.coreClass === cls) return;
+    el.classList.remove('cores-maxed', 'cores-partial', 'cores-stock');
+    el.classList.add(cls);
+    el.dataset.coreClass = cls;
+}
+
 function setDisplay(id, show) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -290,7 +306,19 @@ function updateUI() {
     setStatusClass('v2-vrmmos-temp-figure', t15Val, TEMP_THRESH.vrm);
     setStatusClass('v2-vrmmos-temp-bar', t15Val, TEMP_THRESH.vrm);
 
+    setText('v2-rail-vin', cpuVin.toFixed(2));
+    setBar('v2-rail-vin-bar', cpuVin);
+    const totalVal = smooth('total', total);
+    setText('v2-power-sum', totalVal.toFixed(1));
+    setBar('v2-power-sum-bar', totalVal);
+    setText('v2-power-sum-lbl', totalValid ? 'VRM Sum (CPU+GPU)' : 'VRM Sum · partial');
+    document.getElementById('v2-power-sum-row')?.classList.toggle('uncertain', !totalValid);
+
     // --- CPU CORE ---
+    // Core/CU badges are populated separately by fetchTopology() (see
+    // bottom of file) — that data comes from a once-per-page-load request,
+    // not this per-frame telemetry update.
+
     setText('v2-cpu-die', cpuDie.toFixed(1));
     setStatusClass('v2-cpu-die-unit', cpuDie, TEMP_THRESH.die);
     setText('v2-cpu-freq', Math.round(smooth('cpuFreq', cpuFreq)).toString());
@@ -328,14 +356,6 @@ function updateUI() {
     setStatusClass('v2-gpu-vrmtemp-figure', gpuTVal, TEMP_THRESH.vrm);
     setStatusClass('v2-gpu-vrmtemp-bar', gpuTVal, TEMP_THRESH.vrm);
 
-    // --- POWER BREAKDOWN ---
-    setText('v2-rail-vin', cpuVin.toFixed(2));
-    setText('v2-power-cpu', cpuPout.toFixed(1));
-    setText('v2-power-gpu', gpuPout.toFixed(1));
-    setText('v2-power-sum', smooth('total', total).toFixed(1));
-    setText('v2-power-sum-lbl', totalValid ? 'VRM Sum (CPU+GPU)' : 'VRM Sum · partial');
-    const sumBox = document.getElementById('v2-power-sum-box');
-    if (sumBox) sumBox.parentElement.classList.toggle('uncertain', !totalValid);
 }
 
 async function fetchTelemetry() {
@@ -350,6 +370,68 @@ async function fetchTelemetry() {
 
 setInterval(fetchTelemetry, 700);
 fetchTelemetry();
+
+// Core/CU counts, unlike temp/clock/power, only change on a reboot (CPU) or
+// a live WGP toggle (GPU) — not worth polling every 700ms, so this is a
+// separate, once-per-page-load fetch rather than part of the telemetry loop.
+async function fetchTopology() {
+    try {
+        const response = await fetch('/api/topology');
+        const topo = await response.json();
+
+        const hasCoreCount = typeof topo.cpu_physical_cores === 'number' && topo.cpu_physical_cores > 0;
+        setDisplay('v2-cpu-cores-badge', hasCoreCount);
+        if (hasCoreCount) {
+            setText('v2-cpu-cores', String(topo.cpu_physical_cores));
+            setCoreBadgeClass('v2-cpu-cores-badge', topo.cpu_physical_cores, 6, 8);
+        }
+
+        const hasCuCount = typeof topo.gpu_cu_active === 'number' && topo.gpu_cu_active > 0;
+        setDisplay('v2-gpu-cus-badge', hasCuCount);
+        if (hasCuCount) {
+            setText('v2-gpu-cus', String(topo.gpu_cu_active));
+            setCoreBadgeClass('v2-gpu-cus-badge', topo.gpu_cu_active, 24, 40);
+        }
+    } catch (error) {
+        console.error('Failed to fetch topology:', error);
+    }
+}
+fetchTopology();
+
+// Overclock config/service state — same once-per-page-load cadence as
+// topology: an OC file edit or a service (de)activation isn't something
+// that needs 700ms polling.
+function setOcPanel(panelId, dotId, active, configPresent, valueIds) {
+    setDisplay(panelId, configPresent);
+    if (!configPresent) return;
+    const dotEl = document.getElementById(dotId);
+    if (dotEl) {
+        dotEl.classList.toggle('active', active);
+        dotEl.title = active ? 'Active' : 'Inactive';
+    }
+    const panel = document.getElementById(panelId);
+    if (panel) panel.classList.toggle('oc-inactive', !active);
+    valueIds.forEach(([id, value]) => setText(id, value == null ? '—' : String(value)));
+}
+
+async function fetchOverclock() {
+    try {
+        const response = await fetch('/api/overclock');
+        const oc = await response.json();
+
+        setOcPanel('v2-cpu-oc-panel', 'v2-cpu-oc-dot', oc.cpu?.active, oc.cpu?.config_present, [
+            ['v2-cpu-oc-freq-val', oc.cpu?.target_freq_mhz],
+            ['v2-cpu-oc-maxtemp', oc.cpu?.max_temp_c],
+        ]);
+        setOcPanel('v2-gpu-oc-panel', 'v2-gpu-oc-dot', oc.gpu?.active, oc.gpu?.config_present, [
+            ['v2-gpu-oc-maxfreq', oc.gpu?.max_freq_mhz],
+            ['v2-gpu-oc-minfreq', oc.gpu?.min_freq_mhz],
+        ]);
+    } catch (error) {
+        console.error('Failed to fetch overclock state:', error);
+    }
+}
+fetchOverclock();
 
 function renderLoop() {
     updateUI();

@@ -86,11 +86,33 @@ body {
     padding: 13px 16px 11px;
     border-bottom: 1px solid rgba(255, 255, 255, .08);
     color: var(--accent);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
 }
 .card-title.accent-good { color: var(--status-good); }
 .card-title.accent-cpu { color: var(--accent); }
 .card-title.accent-gpu { color: var(--accent-gpu); }
 .card-title.accent-amber { color: var(--accent-amber); }
+
+/* CPU core/thread count badge — nproc-style stock(12)/unlocked(16) readout,
+   only shown once the daemon actually reports the relevant software.* field. */
+.core-badge {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    letter-spacing: 1.2px;
+}
+.core-badge-val { font-size: 13px; font-weight: 800; color: var(--text-muted); }
+.core-badge-unit { font-size: 9px; font-weight: 700; color: var(--text-muted); opacity: .75; }
+/* "stock" (at/below the factory baseline) → neutral. "partial" (unlocked
+   past stock but short of the ceiling — a permanent, valid steady-state for
+   plenty of real units) → amber. "maxed" (at the architectural ceiling — 8
+   cores / 40 CU, same silicon in every unit) → green. */
+.core-badge.cores-stock .core-badge-val { color: var(--text-muted); }
+.core-badge.cores-partial .core-badge-val { color: var(--status-warning); }
+.core-badge.cores-maxed .core-badge-val { color: var(--status-good); text-shadow: 0 0 8px rgba(52, 211, 153, .4); }
 
 .board-svg-wrap { padding: 2px 10px 6px; }
 #bc250-board { display: block; width: 100%; height: auto; }
@@ -129,6 +151,34 @@ body {
 /* MEMORY is a compact panel and shouldn't stretch: in BOARD·COOLING it comes
    before THERMALS, and THERMALS (the last .board-panel) is the one that should keep flex:1. */
 #v2-memory-panel { flex: 0 0 auto; }
+/* OVERCLOCK panels are compact too — same reasoning as MEMORY above. */
+#v2-cpu-oc-panel, #v2-gpu-oc-panel { flex: 0 0 auto; }
+
+/* Config values stay visible but dim when the service isn't actually
+   applying them right now — they're real numbers, just not currently live. */
+.board-panel.oc-inactive .r-val.accent-cpu-text,
+.board-panel.oc-inactive .r-val.accent-gpu-text { color: var(--text-muted) !important; }
+
+/* total_power_valid == false: the sum is partial, not a genuine zero */
+.board-row.uncertain .r-val { color: var(--text-muted) !important; }
+.board-row.uncertain .mini-bar-fill { background: var(--text-muted) !important; }
+
+/* Active/inactive indicator dot next to an OVERCLOCK panel's title. */
+.oc-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 6px;
+    border-radius: 50%;
+    vertical-align: middle;
+    background: var(--text-muted);
+    opacity: .5;
+}
+.oc-dot.active {
+    background: var(--status-good);
+    opacity: 1;
+    box-shadow: 0 0 6px rgba(52, 211, 153, .7);
+}
 .panel-title {
     font-size: 9.5px;
     letter-spacing: 2.2px;
@@ -162,6 +212,7 @@ body {
 }
 .accent-cpu-bg { background: var(--accent) !important; }
 .accent-gpu-bg { background: var(--accent-gpu) !important; }
+.accent-amber-bg { background: var(--accent-amber) !important; }
 
 /* Temperature color semantics: good -> warning -> serious -> critical */
 .r-val.status-good, .unit.status-good { color: var(--status-good) !important; }
@@ -211,12 +262,17 @@ body {
 .legend-swatch { width: 10px; height: 2px; display: inline-block; background: currentColor; }
 .legend-swatch.freq { background: #94a3b8; opacity: .45; }
 
-/* Small, low-key link for switching between v1 and v2 */
+/* Small, low-key link for switching between v1 and v2 — pinned to the
+   bottom of the viewport like v1's, rather than scrolling with the content
+   (v2's page isn't locked to a single screen height like v1's is). */
 .dash-switch-link {
+    position: fixed;
+    left: 0; right: 0; bottom: 6px;
     text-align: center;
-    padding: 10px 0 2px;
+    padding: 6px 0 4px;
     font-size: 11px;
     letter-spacing: .3px;
+    z-index: 1;
 }
 .dash-switch-link a {
     color: var(--text-muted);
@@ -228,31 +284,9 @@ body {
     border-bottom-color: var(--text-muted);
 }
 
-.power-breakdown {
-    margin: 12px 12px 12px;
-    background: rgba(2, 6, 23, .45);
-    border: 1px solid var(--glass-border);
-    border-radius: 12px;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    padding: 14px 0 16px;
-}
-.power-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.power-val {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 24px; font-weight: 700; color: var(--text-main);
-    display: flex; align-items: baseline; gap: 4px;
-}
-.power-val .unit { font-size: 13px; font-weight: 700; color: var(--text-muted); }
-.power-lbl { font-size: 13.5px; color: var(--text-muted); }
-
-/* total_power_valid == false: the sum is partial, not a genuine zero */
-.power-item.uncertain .power-val { color: var(--text-muted) !important; }
-
 @media (max-width: 900px) {
     .board-grid { grid-template-columns: 1fr; }
     .board-card { grid-column: auto !important; grid-row: auto !important; }
-    .power-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 }
 
 @media (max-width: 640px) {
@@ -260,7 +294,5 @@ body {
     .board-hero, .board-hero.has-backfan { grid-template-columns: 1fr; }
     .board-hero-item.align-end { align-items: flex-start; }
     .board-hero-item .val { font-size: 30px; }
-    .power-breakdown { grid-template-columns: 1fr 1fr; padding: 12px 0; }
-    .power-val { font-size: 20px; }
     .board-row-main { font-size: 12.5px; }
 }

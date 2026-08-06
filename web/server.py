@@ -3,6 +3,9 @@ import socketserver
 import json
 import os
 
+import topology
+import overclock
+
 # CLAUDE.md documents port 8090 as the canonical port for this service.
 PORT = int(os.environ.get("BC250_WEB_PORT", 8090))
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +45,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.write(f.read().encode())
             except Exception as e:
                 self.wfile.write(json.dumps({"error": str(e)}).encode())
+        # Core/CU counts: queried fresh per request, not cached — the
+        # frontend only calls this once per page load, so there's no need to
+        # cache it server-side, and a fresh read means a live WGP/core
+        # unlock shows up correctly if the page happens to be reloaded.
+        elif self.path == '/api/topology':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(topology.read_topology()).encode())
+        # Same once-per-page-load cadence as /api/topology — this is config
+        # state (an OC file edit, a service (de)activation), not telemetry.
+        elif self.path == '/api/overclock':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(overclock.read_overclock()).encode())
         elif self.path == '/' and DEFAULT_DASHBOARD == 'v2':
             self.send_response(302)
             self.send_header('Location', '/v2/')
