@@ -22,6 +22,11 @@ small bundled web server (`web/server.py`) on port 8090 with two dashboard
 variants — `/` (classic HUD) and `/v2/` (animated board diagram), both
 always reachable regardless of which one is the default.
 
+The web layer adds a third data source on top of that, at a much slower
+cadence — CPU core / GPU Compute Unit counts, and overclock config/service
+state — since none of it changes at 700 ms speed. See
+[Topology & overclock endpoints](#topology--overclock-endpoints) below.
+
 If the I2C bus isn't found, the daemon doesn't crash-loop — it logs the
 issue, retries every ~10 s, and keeps serving everything that doesn't depend
 on I2C (CPU/GPU clocks, temperatures, fans).
@@ -141,4 +146,66 @@ BC250_I2C_BUS=4 ./apu_telemetry
   invalid — `total_power` then reflects only the working side, not a real zero.
 - Any field can be `-1` if that particular sensor isn't available; everything
   else keeps working independently.
-</content>
+
+## Topology & overclock endpoints
+
+Two more endpoints, served straight by `web/server.py` (not the daemon) —
+`/api/topology` and `/api/overclock`. Both are config/topology facts rather
+than telemetry: they only change on a reboot, a live CU/WGP toggle, or an OC
+config edit, so the dashboard fetches each once per page load instead of
+polling them every 700 ms.
+
+**`/api/topology`** — `web/topology.py`:
+
+```json
+{
+  "cpu_physical_cores": 8,
+  "gpu_cu_active": 40
+}
+```
+
+- `cpu_physical_cores` comes straight from `/proc/cpuinfo`'s own "cpu cores"
+  field (not threads ÷ 2 — a core disabled by binning isn't guaranteed to
+  leave exactly half the threads intact).
+- `gpu_cu_active` normally comes from the amdgpu driver via `libdrm_amdgpu`
+  (`AMDGPU_INFO_DEV_INFO`). If `bc250-cu-live-manager.service` is active,
+  that value is skipped in favor of its saved `/etc/bc250-cu-live-manager.conf`
+  WGP table instead — the live-manager toggles CU dispatch by writing SPI/CC/RLC
+  registers directly, *after* the driver has already cached its own count, so
+  the driver's own number can be stale in that specific case.
+- Either field is `null` if it can't be determined (no `/dev/dri` render
+  node, `libdrm_amdgpu.so.1` missing, etc.) — the dashboard just hides the
+  corresponding badge.
+
+**`/api/overclock`** — `web/overclock.py`:
+
+```json
+{
+  "cpu": {
+    "config_present": true,
+    "active": true,
+    "target_freq_mhz": 4000,
+    "max_temp_c": 90
+  },
+  "gpu": {
+    "config_present": true,
+    "active": true,
+    "max_freq_mhz": 2000,
+    "min_freq_mhz": 400
+  }
+}
+```
+
+- `cpu` reads `/etc/bc250-smu-oc.conf` (INI) and checks `bc250-smu-oc.service`.
+  That service is a one-shot applier with no `RemainAfterExit` — it pushes the
+  curve to the SMU once and exits, so `active` here means "the last run
+  actually completed successfully" (`systemctl show` `Result`/`ExecMainStatus`
+  gated on `LoadState`/`ExecMainStartTimestamp` so a never-installed unit
+  doesn't look "active" by default), not "the process is still running".
+- `gpu` reads `/etc/cyan-skillfish-governor-smu/config.toml`'s
+  `[frequency-range]` table and checks `cyan-skillfish-governor-smu.service`.
+  That one *is* a real long-running daemon, so `active` there means the
+  usual `systemctl is-active`.
+- `config_present: false` (config file missing or unreadable) means the tool
+  simply isn't installed — the dashboard hides that panel entirely rather
+  than showing zeros.
