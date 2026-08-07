@@ -47,8 +47,9 @@ jobs:
         run: |
           BUNDLE=bc250-telemetry
           mkdir -p "dist/$BUNDLE/web"
-          cp apu_telemetry bc250_telemetry.cpp install.sh install-lib.sh uninstall.sh apu-telemetry.service README.md "dist/$BUNDLE/"
+          cp apu_telemetry bc250_telemetry.cpp install.sh install-lib.sh uninstall.sh apu-telemetry.service README.md LICENSE hardware.md "dist/$BUNDLE/"
           cp -r web/. "dist/$BUNDLE/web/"
+          cp -r images "dist/$BUNDLE/"
           chmod +x "dist/$BUNDLE/apu_telemetry" "dist/$BUNDLE/install.sh" "dist/$BUNDLE/uninstall.sh"
           tar -C dist -czf bc250-telemetry.tar.gz "$BUNDLE"
 
