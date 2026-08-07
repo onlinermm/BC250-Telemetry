@@ -48,6 +48,10 @@ body {
     max-width: 1120px;
     margin: 0 auto;
     padding: 28px;
+    /* Extra bottom clearance so the fixed .dash-switch-link (below) never
+       overlaps the last card's content once the page is taller than the
+       viewport and scrolled all the way down. */
+    padding-bottom: 52px;
     box-sizing: border-box;
 }
 
@@ -267,12 +271,16 @@ body {
    (v2's page isn't locked to a single screen height like v1's is). */
 .dash-switch-link {
     position: fixed;
-    left: 0; right: 0; bottom: 6px;
+    left: 0; right: 0; bottom: 0;
     text-align: center;
-    padding: 6px 0 4px;
+    padding: 6px 0 10px;
     font-size: 11px;
     letter-spacing: .3px;
-    z-index: 1;
+    z-index: 2;
+    /* Backdrop so short viewports (where the page scrolls and this sits over
+       real content) still read the link cleanly instead of it blending into
+       whatever card happens to be underneath. */
+    background: linear-gradient(to top, var(--bg-color) 60%, transparent);
 }
 .dash-switch-link a {
     color: var(--text-muted);

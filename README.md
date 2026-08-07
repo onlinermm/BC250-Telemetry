@@ -26,6 +26,12 @@ If the I2C bus isn't found, the daemon doesn't crash-loop — it logs the
 issue, retries every ~10 s, and keeps serving everything that doesn't depend
 on I2C (CPU/GPU clocks, temperatures, fans).
 
+## Screenshots
+
+| Classic (`/`) | v2 — animated board diagram (`/v2/`) |
+|---|---|
+| ![Classic dashboard](images/v1.jpg) | ![v2 dashboard](images/v2.jpg) |
+
 ## Quick start
 
 Download the latest release from
