@@ -13,7 +13,7 @@ This guide covers the physical mod required to get I2C/PMBus telemetry working o
 
 Per the [community hardware documentation for this board](https://elektricm.github.io/amd-bc250-docs/hardware/pinouts/):
 
-> The SCL pin is on the "lower" side of the board, closer to the power connectors.
+> The SDA pin is on the "lower" side of the board, closer to the power connectors.
 >
 > This exposes an I2C interface which hosts PMBUS communications to the Intersil PMICs.
 So `I2C_HEADER1` is where the bus is *exposed*, but it's dead on its own — `TPMS1` carries the actual live `SMB_CLK_MAIN` / `SMB_DATA_MAIN` signals from the LPC/debug side of the board. Bridging the two is what puts `I2C_HEADER1` on the live bus.
@@ -26,7 +26,7 @@ Two headers are involved:
 
 | Header | What it is | Relevant pins |
 |---|---|---|
-| **`I2C_HEADER1`** | 3-pin I2C header | `SCL`, `SDA`, `GND` |
+| **`I2C_HEADER1`** | 3-pin I2C header | `SDA`, `SCL`, `GND` |
 | **`TPMS1`** | 18-pin 2.0mm LPC/TPM debug header | `SMB_CLK_MAIN` (pin 4), `SMB_DATA_MAIN` (pin 6) |
 
 The short version: **`SCL` → pin 4, `SDA` → pin 6**. That's it — you don't need to run a separate GND jumper (more on that below). Full pinouts below if you need to double check orientation on your specific board.
@@ -34,11 +34,11 @@ The short version: **`SCL` → pin 4, `SDA` → pin 6**. That's it — you don't
 ### `I2C_HEADER1` pinout
 
 ```
-> [ SCL  SDA  GND ]
+> [ SDA  SCL  GND ]
 ```
 
 > [!TIP]
-> The `SCL` pin is on the "lower" side of the board, closer to the power connectors — useful for orienting the header if it's not clearly silkscreened on your revision.
+> The `SDA` pin is on the "lower" side of the board, closer to the power connectors — useful for orienting the header if it's not clearly silkscreened on your revision.
 
 ### `TPMS1` pinout (18-pin, 2.0mm pitch)
 
