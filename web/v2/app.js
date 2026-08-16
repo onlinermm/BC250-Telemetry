@@ -94,6 +94,29 @@ function setCoreBadgeClass(id, count, stockAt, maxAt) {
     el.dataset.coreClass = cls;
 }
 
+// Chip-reported STATUS_TEMPERATURE/STATUS_IOUT fault/warning bits — only
+// shown when the PMIC itself has latched the bit, never a software-guessed threshold.
+function setFaultBadge(id, warning, fault, kind) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const badgeState = fault ? 'fault' : (warning ? 'warning' : 'none');
+    if (el.dataset.faultState === badgeState) return;
+    el.classList.remove('active-warning', 'active-fault');
+    if (badgeState === 'fault') {
+        el.classList.add('active-fault');
+        el.textContent = 'FAULT';
+        el.title = `PMIC ${kind} FAULT bit is set`;
+    } else if (badgeState === 'warning') {
+        el.classList.add('active-warning');
+        el.textContent = 'WARN';
+        el.title = `PMIC ${kind} WARNING bit is set`;
+    } else {
+        el.textContent = '';
+        el.title = '';
+    }
+    el.dataset.faultState = badgeState;
+}
+
 function setDisplay(id, show) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -204,11 +227,19 @@ function updateUI() {
     const cpuIout = cpu.valid ? cpu.iout : (p.cpuIout ?? 0);
     const cpuPout = cpu.valid ? cpu.pout : (p.cpuPout ?? 0);
     const cpuT = cpu.valid ? cpu.temp : (p.cpuT ?? 0);
+    const cpuTempWarning = cpu.valid ? !!cpu.temp_warning : (p.cpuTempWarning ?? false);
+    const cpuTempFault = cpu.valid ? !!cpu.temp_fault : (p.cpuTempFault ?? false);
+    const cpuIoutWarning = cpu.valid ? !!cpu.iout_warning : (p.cpuIoutWarning ?? false);
+    const cpuIoutFault = cpu.valid ? !!cpu.iout_fault : (p.cpuIoutFault ?? false);
     const gpuVin = gpu.valid ? gpu.vin : (p.gpuVin ?? 0);
     const gpuVout = gpu.valid ? gpu.vout : (p.gpuVout ?? 0);
     const gpuIout = gpu.valid ? gpu.iout : (p.gpuIout ?? 0);
     const gpuPout = gpu.valid ? gpu.pout : (p.gpuPout ?? 0);
     const gpuT = gpu.valid ? gpu.temp : (p.gpuT ?? 0);
+    const gpuTempWarning = gpu.valid ? !!gpu.temp_warning : (p.gpuTempWarning ?? false);
+    const gpuTempFault = gpu.valid ? !!gpu.temp_fault : (p.gpuTempFault ?? false);
+    const gpuIoutWarning = gpu.valid ? !!gpu.iout_warning : (p.gpuIoutWarning ?? false);
+    const gpuIoutFault = gpu.valid ? !!gpu.iout_fault : (p.gpuIoutFault ?? false);
 
     const totalValid = hw.total_power_valid !== false;
     const total = pick(hw.total_power, cpuPout + gpuPout);
@@ -216,6 +247,8 @@ function updateUI() {
     state.prevFrame = {
         cpuDie, gpuDie, cpuFreq, gpuClock, ppt, nvme, t14, t15, fanRpm, fanPwm,
         cpuVin, cpuVout, cpuIout, cpuPout, cpuT, gpuVin, gpuVout, gpuIout, gpuPout, gpuT,
+        cpuTempWarning, cpuTempFault, gpuTempWarning, gpuTempFault,
+        cpuIoutWarning, cpuIoutFault, gpuIoutWarning, gpuIoutFault,
     };
 
     // --- History for the mini-charts (once per real telemetry frame, not per rAF tick) ---
@@ -329,6 +362,7 @@ function updateUI() {
     setBar('v2-cpu-vout-bar', cpuVout);
     setText('v2-cpu-iout', smooth('cpuIout', cpuIout).toFixed(1));
     setBar('v2-cpu-iout-bar', cpuIout);
+    setFaultBadge('v2-cpu-iout-fault-badge', cpuIoutWarning, cpuIoutFault, 'over-current (STATUS_IOUT)');
     setText('v2-cpu-pout', smooth('cpuPoutTxt', cpuPout).toFixed(1));
     setBar('v2-cpu-pout-bar', cpuPout);
     const cpuTVal = smooth('cpuT', cpuT, SMOOTHING_CRISP);
@@ -336,6 +370,7 @@ function updateUI() {
     setBar('v2-cpu-vrmtemp-bar', cpuTVal);
     setStatusClass('v2-cpu-vrmtemp-figure', cpuTVal, TEMP_THRESH.vrm);
     setStatusClass('v2-cpu-vrmtemp-bar', cpuTVal, TEMP_THRESH.vrm);
+    setFaultBadge('v2-cpu-temp-fault-badge', cpuTempWarning, cpuTempFault, 'over-temperature (STATUS_TEMPERATURE)');
 
     // --- GPU CORE ---
     setText('v2-gpu-die', gpuDie.toFixed(1));
@@ -348,6 +383,7 @@ function updateUI() {
     setBar('v2-gpu-vout-bar', gpuVout);
     setText('v2-gpu-iout', smooth('gpuIout', gpuIout).toFixed(1));
     setBar('v2-gpu-iout-bar', gpuIout);
+    setFaultBadge('v2-gpu-iout-fault-badge', gpuIoutWarning, gpuIoutFault, 'over-current (STATUS_IOUT)');
     setText('v2-gpu-pout', smooth('gpuPoutTxt', gpuPout).toFixed(1));
     setBar('v2-gpu-pout-bar', gpuPout);
     const gpuTVal = smooth('gpuT', gpuT, SMOOTHING_CRISP);
@@ -355,6 +391,7 @@ function updateUI() {
     setBar('v2-gpu-vrmtemp-bar', gpuTVal);
     setStatusClass('v2-gpu-vrmtemp-figure', gpuTVal, TEMP_THRESH.vrm);
     setStatusClass('v2-gpu-vrmtemp-bar', gpuTVal, TEMP_THRESH.vrm);
+    setFaultBadge('v2-gpu-temp-fault-badge', gpuTempWarning, gpuTempFault, 'over-temperature (STATUS_TEMPERATURE)');
 
 }
 

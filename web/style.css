@@ -203,6 +203,33 @@ body {
 .vrm-row.highlight .r-val { color: var(--accent); font-weight: 800; text-shadow: 0 0 10px var(--accent-glow);}
 .temp-vrm { font-weight: 800; }
 
+/* Chip-reported STATUS_TEMPERATURE/STATUS_IOUT fault & warning bits — hidden
+   unless the PMIC itself has actually latched the bit (see bc250_telemetry.cpp). */
+.fault-badge {
+    display: none;
+    margin-left: 0.5rem;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+.fault-badge.active-warning {
+    display: inline-block;
+    color: var(--status-warning);
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid rgba(251, 191, 36, 0.4);
+}
+.fault-badge.active-fault {
+    display: inline-block;
+    color: var(--status-critical);
+    background: rgba(251, 113, 133, 0.15);
+    border: 1px solid rgba(251, 113, 133, 0.5);
+    animation: ppt-blink 0.8s ease-in-out infinite;
+}
+
 /* Mini level indicator below each VRM/temperature value */
 .mini-bar {
     width: 100%; height: 4px; border-radius: 2px;

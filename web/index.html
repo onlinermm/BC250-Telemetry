@@ -66,7 +66,7 @@
                         <div class="mini-bar"><div class="mini-bar-fill" id="cpu-vout-bar" data-max="1.2"></div></div>
                     </div>
                     <div class="vrm-row">
-                        <div class="vrm-row-main"><span>Current</span><div class="r-val"><span id="cpu-iout">0.0</span> A</div></div>
+                        <div class="vrm-row-main"><span>Current<span class="fault-badge" id="cpu-iout-fault-badge"></span></span><div class="r-val"><span id="cpu-iout">0.0</span> A</div></div>
                         <div class="mini-bar"><div class="mini-bar-fill" id="cpu-iout-bar" data-max="55"></div></div>
                     </div>
                     <div class="vrm-row highlight">
@@ -74,7 +74,7 @@
                         <div class="mini-bar"><div class="mini-bar-fill" id="cpu-pout-bar" data-max="60"></div></div>
                     </div>
                     <div class="vrm-row">
-                        <div class="vrm-row-main"><span>VRM Temp</span><div class="r-val temp-vrm" id="cpu-temp-figure"><span id="cpu-temp">0</span> °C</div></div>
+                        <div class="vrm-row-main"><span>VRM Temp<span class="fault-badge" id="cpu-temp-fault-badge"></span></span><div class="r-val temp-vrm" id="cpu-temp-figure"><span id="cpu-temp">0</span> °C</div></div>
                         <div class="mini-bar"><div class="mini-bar-fill" id="cpu-temp-bar" data-max="100"></div></div>
                     </div>
                 </div>
@@ -108,7 +108,7 @@
                         <div class="mini-bar"><div class="mini-bar-fill" id="gpu-vout-bar" data-max="0.9"></div></div>
                     </div>
                     <div class="vrm-row">
-                        <div class="vrm-row-main"><span>Current</span><div class="r-val"><span id="gpu-iout">0.0</span> A</div></div>
+                        <div class="vrm-row-main"><span>Current<span class="fault-badge" id="gpu-iout-fault-badge"></span></span><div class="r-val"><span id="gpu-iout">0.0</span> A</div></div>
                         <div class="mini-bar"><div class="mini-bar-fill" id="gpu-iout-bar" data-max="150"></div></div>
                     </div>
                     <div class="vrm-row highlight">
@@ -116,7 +116,7 @@
                         <div class="mini-bar"><div class="mini-bar-fill" id="gpu-pout-bar" data-max="130"></div></div>
                     </div>
                     <div class="vrm-row">
-                        <div class="vrm-row-main"><span>VRM Temp</span><div class="r-val temp-vrm" id="gpu-temp-figure"><span id="gpu-temp">0</span> °C</div></div>
+                        <div class="vrm-row-main"><span>VRM Temp<span class="fault-badge" id="gpu-temp-fault-badge"></span></span><div class="r-val temp-vrm" id="gpu-temp-figure"><span id="gpu-temp">0</span> °C</div></div>
                         <div class="mini-bar"><div class="mini-bar-fill" id="gpu-temp-bar" data-max="100"></div></div>
                     </div>
                 </div>
