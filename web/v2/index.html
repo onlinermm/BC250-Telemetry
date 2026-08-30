@@ -44,295 +44,198 @@
                     <!-- bc250-board.svg is inlined so JS can drive
                          #bc-heat / #bc-cpu-vrm-glow / #bc-gpu-vrm-glow / #bc-fan1-blades /
                          #bc-power-flow / #bc-vrm-flow-cpu / #bc-vrm-flow-gpu directly. -->
-                    <svg id="bc250-board" viewBox="118 140 1014 372" width="100%" role="img" aria-label="AMD BC-250 board diagram">
-                        <defs>
-                            <!-- #bc-heat switches between these three gradients based on the
-                                 SMU PPT thresholds (150/180W — the same ones used by .ppt-item warning/critical). -->
-                            <radialGradient id="bc-heat-grad">
-                                <stop offset="0%" stop-color="#ffd166" stop-opacity="1"></stop>
-                                <stop offset="28%" stop-color="#ff7a2f" stop-opacity=".8"></stop>
-                                <stop offset="62%" stop-color="#fb923c" stop-opacity=".35"></stop>
-                                <stop offset="100%" stop-color="#fb923c" stop-opacity="0"></stop>
-                            </radialGradient>
-                            <radialGradient id="bc-heat-grad-warn">
-                                <stop offset="0%" stop-color="#fff3c4" stop-opacity="1"></stop>
-                                <stop offset="28%" stop-color="#fbbf24" stop-opacity=".85"></stop>
-                                <stop offset="62%" stop-color="#fbbf24" stop-opacity=".4"></stop>
-                                <stop offset="100%" stop-color="#fbbf24" stop-opacity="0"></stop>
-                            </radialGradient>
-                            <radialGradient id="bc-heat-grad-crit">
-                                <stop offset="0%" stop-color="#ffd6dc" stop-opacity="1"></stop>
-                                <stop offset="28%" stop-color="#fb7185" stop-opacity=".85"></stop>
-                                <stop offset="62%" stop-color="#fb7185" stop-opacity=".4"></stop>
-                                <stop offset="100%" stop-color="#fb7185" stop-opacity="0"></stop>
-                            </radialGradient>
-                            <radialGradient id="bc-vrm-blue">
-                                <stop offset="0%" stop-color="#38bdf8" stop-opacity=".85"></stop>
-                                <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"></stop>
-                            </radialGradient>
-                            <radialGradient id="bc-vrm-orange">
-                                <stop offset="0%" stop-color="#fb923c" stop-opacity=".85"></stop>
-                                <stop offset="100%" stop-color="#fb923c" stop-opacity="0"></stop>
-                            </radialGradient>
-                            <linearGradient id="bc-pcb" x1="0" y1="0" x2="1" y2="1">
-                                <stop offset="0%" stop-color="#191d22"></stop>
-                                <stop offset="100%" stop-color="#111418"></stop>
-                            </linearGradient>
-                        </defs>
+<svg id="bc250-board" viewBox="0 0 900 424" width="100%" role="img" aria-label="AMD BC-250 board">
+                            <defs>
+                                <radialGradient id="bc-heat-grad">
+                                    <stop offset="0%" stop-color="#ffd166" stop-opacity="1"></stop>
+                                    <stop offset="28%" stop-color="#ff7a2f" stop-opacity=".8"></stop>
+                                    <stop offset="62%" stop-color="#fb923c" stop-opacity=".35"></stop>
+                                    <stop offset="100%" stop-color="#fb923c" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-heat-grad-warn">
+                                    <stop offset="0%" stop-color="#fff3c4" stop-opacity="1"></stop>
+                                    <stop offset="28%" stop-color="#fbbf24" stop-opacity=".85"></stop>
+                                    <stop offset="62%" stop-color="#fbbf24" stop-opacity=".4"></stop>
+                                    <stop offset="100%" stop-color="#fbbf24" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-heat-grad-crit">
+                                    <stop offset="0%" stop-color="#ffd6dc" stop-opacity="1"></stop>
+                                    <stop offset="28%" stop-color="#fb7185" stop-opacity=".85"></stop>
+                                    <stop offset="62%" stop-color="#fb7185" stop-opacity=".4"></stop>
+                                    <stop offset="100%" stop-color="#fb7185" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-vrm-blue"><stop offset="0%" stop-color="#38bdf8" stop-opacity=".9"></stop><stop offset="100%" stop-color="#38bdf8" stop-opacity="0"></stop></radialGradient>
+                                <radialGradient id="bc-vrm-orange"><stop offset="0%" stop-color="#fb923c" stop-opacity=".9"></stop><stop offset="100%" stop-color="#fb923c" stop-opacity="0"></stop></radialGradient>
+                                <linearGradient id="bc-pcb" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1d2e23"></stop><stop offset="100%" stop-color="#101c15"></stop></linearGradient>
+                                <linearGradient id="bc-sink" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#5d6771"></stop><stop offset="50%" stop-color="#414a53"></stop><stop offset="100%" stop-color="#2d353c"></stop></linearGradient>
+                            </defs>
 
-                        <g id="bc-iso" transform="translate(227,154) skewX(-14) scale(1,0.9)">
-
-                            <rect x="14" y="352" width="800" height="26" rx="10" fill="#000000" opacity=".45"></rect>
-                            <rect x="0" y="336" width="800" height="14" rx="6" fill="#0a0c0e"></rect>
-                            <!-- Second (backplate) fan: hidden until JS confirms
-                                 cooling.vrm_fan_rpm is present in the telemetry JSON. -->
-                            <g id="bc-backplate-fan" transform="translate(825,150)" style="display:none">
-                                <ellipse cx="0" cy="8" rx="84" ry="84" fill="#000" opacity=".3"></ellipse>
-                                <rect x="-84" y="-84" width="168" height="168" rx="12" fill="#171b1f" stroke="#3a434c"></rect>
-                                <circle r="78" fill="#0e1216" stroke="#2f373f"></circle>
-                                <g id="bc-fan2-blades">
-                                    <g fill="#39424b" stroke="#485259" stroke-width="1">
-                                        <rect x="-11" y="-73" width="22" height="57" rx="11"></rect>
-                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(40)"></rect>
-                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(80)"></rect>
-                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(120)"></rect>
-                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(160)"></rect>
-                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(200)"></rect>
-                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(240)"></rect>
-                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(280)"></rect>
-                                        <rect x="-11" y="-73" width="22" height="57" rx="11" transform="rotate(320)"></rect>
+                            <!-- Drawn to the board's real dimensions and layout: outline, heatsink
+         footprint and component positions are to scale. -->
+                            <g id="bc-iso">
+                                <polygon points="587.2,330.2 74.4,330.2 74.4,28.2 833.7,28.2 833.7,383.9 587.2,383.9" fill="#000" opacity=".3" transform="translate(4,5)"></polygon>
+                                <polygon points="587.2,330.2 74.4,330.2 74.4,28.2 833.7,28.2 833.7,383.9 587.2,383.9" fill="url(#bc-pcb)" stroke="#33493c" stroke-width="1.4"></polygon>
+                                <g fill="#0b1410" stroke="#3c483f">
+                                    <circle cx="93.1" cy="310.6" r="3.6"></circle>
+                                    <circle cx="93.1" cy="56.5" r="3.6"></circle>
+                                    <circle cx="819.0" cy="97.5" r="3.6"></circle>
+                                    <circle cx="819.0" cy="72.1" r="3.6"></circle>
+                                </g>
+                                <!-- rear I/O shield, overhanging the PCB edge -->
+                                <polygon points="74.7,294.7 79.0,290.4 79.0,49.0 74.7,44.7 66.2,44.7 66.2,294.7" fill="#1a2026" stroke="#48535c" stroke-width="1"></polygon>
+                                <rect x="87.5" y="252.7" width="33.6" height="39.5" rx="1.5" fill="#12181e" stroke="#4b5660"></rect>
+                                <rect id="bc-lan-led" x="91.3" y="258.5" width="6" height="3.5" rx="1" fill="#4ade80" opacity=".9"></rect>
+                                <rect x="95.9" y="202.4" width="16.7" height="33.4" rx="1.5" fill="#0f3050" stroke="#48535c"></rect>
+                                <rect x="95.9" y="105.9" width="14.2" height="33.3" rx="1.5" fill="#14181c" stroke="#48535c"></rect>
+                                <rect x="81.1" y="149.9" width="25.6" height="41.9" rx="1.5" fill="#12181e" stroke="#48535c"></rect>
+                                <rect x="87.7" y="71.7" width="20.2" height="20.4" rx="1.5" fill="#11161b" stroke="#48535c"></rect>
+                                <rect x="126.3" y="39.2" width="51.6" height="19.2" rx="1.5" fill="#141a20" stroke="#48535c"></rect>
+                                <rect x="175.5" y="308.2" width="18.1" height="9.7" rx="1.5" fill="#1c232a" stroke="#48535c"></rect>
+                                <!-- the tongue along the bottom carries power in and the fan headers -->
+                                <polygon points="629.1,351.9 629.1,383.9 673.4,383.9 673.4,351.9" fill="#232a31" stroke="#525d67" stroke-width="1"></polygon>
+                                <rect x="700.6" y="346.5" width="22.5" height="29.3" rx="2" fill="#1e242b" stroke="#4b555f"></rect>
+                                <rect x="750.5" y="346.5" width="22.4" height="29.3" rx="2" fill="#1e242b" stroke="#4b555f"></rect>
+                                <rect x="797.8" y="346.7" width="5.4" height="19.3" rx="1" fill="#161c22" stroke="#3d4750"></rect>
+                                <rect x="816.6" y="332.3" width="6.3" height="45.2" rx="1" fill="#161c22" stroke="#3d4750"></rect>
+                                <rect x="813.9" y="233.1" width="9.1" height="12.9" rx="1" fill="#161c22" stroke="#3d4750"></rect>
+                                <polygon points="823.8,46.9 792.8,46.9 792.8,113.2 823.8,113.2" fill="#1a2026" stroke="#454f58" stroke-width="1"></polygon>
+                                <!-- parts that sit under the heatsink: they show through it -->
+                                <g stroke="#46525c" stroke-width=".9">
+                                    <rect x="196.5" y="207.9" width="57.6" height="58.7" rx="2" fill="#232b33"></rect>
+                                    <rect x="295.4" y="273.1" width="39.1" height="39.9" rx="2" fill="#232b33"></rect>
+                                    <rect x="391.6" y="237.5" width="39.7" height="40.5" rx="2" fill="#26303a"></rect>
+                                    <rect x="576.0" y="237.5" width="39.7" height="40.5" rx="2" fill="#26303a"></rect>
+                                    <rect x="391.6" y="82.5" width="39.7" height="40.4" rx="2" fill="#26303a"></rect>
+                                    <rect x="576.0" y="82.5" width="39.7" height="40.4" rx="2" fill="#26303a"></rect>
+                                    <rect x="460.7" y="280.9" width="24.3" height="32.4" rx="2" fill="#26303a"></rect>
+                                    <rect x="522.3" y="280.9" width="24.3" height="32.4" rx="2" fill="#26303a"></rect>
+                                    <rect x="460.7" y="47.1" width="24.3" height="32.4" rx="2" fill="#26303a"></rect>
+                                    <rect x="522.3" y="47.1" width="24.3" height="32.4" rx="2" fill="#26303a"></rect>
+                                </g>
+                                <!-- VRM phase column PUA11..PUA24 plus its controller -->
+                                <g stroke="#5a6570" stroke-width=".9">
+                                    <rect x="709.1" y="231.1" width="11.6" height="11.8" rx="1.5" fill="#333d47"></rect>
+                                    <rect x="709.1" y="206.3" width="11.6" height="11.8" rx="1.5" fill="#333d47"></rect>
+                                    <rect x="709.1" y="107.2" width="11.6" height="11.8" rx="1.5" fill="#333d47"></rect>
+                                    <rect x="709.1" y="131.7" width="11.6" height="11.8" rx="1.5" fill="#333d47"></rect>
+                                    <rect x="709.1" y="156.6" width="11.6" height="11.8" rx="1.5" fill="#333d47"></rect>
+                                    <rect x="709.1" y="181.4" width="11.6" height="11.8" rx="1.5" fill="#333d47"></rect>
+                                    <rect x="785.5" y="197.7" width="14.2" height="14.5" rx="2" fill="#232b33"></rect>
+                                </g>
+                                <!-- APU U25, 2197 balls -->
+                                <rect x="450.8" y="126.4" width="105.7" height="107.7" rx="3" fill="#2b353f" stroke="#5d6873"></rect>
+                                <rect x="460.9" y="136.7" width="85.5" height="87.1" rx="2" fill="#1c242b"></rect>
+                                <!-- Current paths, landing on the real pads:
+                                     8-pin J1000 -> PUA phase column -> APU U25, and a memory rail out to
+                                     the GDDR6 packages. They run under the translucent heatsink, which is
+                                     where the copper actually is. -->
+                                    <!-- static copper from the APU out to the eight GDDR6 packages -->
+                                    <g stroke="#2a3a30" stroke-width="2" fill="none" stroke-linecap="round" opacity=".75">
+                                        <path d="M503.7 180.2 L411.4 180.2 L411.4 257.7"></path>
+                                        <path d="M503.7 180.2 L595.9 180.2 L595.9 257.7"></path>
+                                        <path d="M503.7 180.2 L411.4 180.2 L411.4 102.7"></path>
+                                        <path d="M503.7 180.2 L595.9 180.2 L595.9 102.7"></path>
+                                        <path d="M503.7 180.2 L472.9 180.2 L472.9 297.1"></path>
+                                        <path d="M503.7 180.2 L534.4 180.2 L534.4 297.1"></path>
+                                        <path d="M503.7 180.2 L472.9 180.2 L472.9 63.3"></path>
+                                        <path d="M503.7 180.2 L534.4 180.2 L534.4 63.3"></path>
                                     </g>
-                                    <circle r="7" fill="#4d5760"></circle>
+                                <ellipse id="bc-cpu-vrm-glow" cx="714.9" cy="212.2" rx="34" ry="26" fill="url(#bc-vrm-blue)" opacity="0"></ellipse>
+                                <ellipse id="bc-gpu-vrm-glow" cx="714.9" cy="137.6" rx="38" ry="29" fill="url(#bc-vrm-orange)" opacity="0"></ellipse>
+                                <!-- heatsink: real 12-vertex footprint, 26 mm of fin stack -->
+                                <polygon points="207.5,119.4 194.0,119.4 194.0,31.9 671.0,31.9 671.0,103.4 781.9,103.4 781.9,326.5 272.9,326.5 272.9,282.1 194.0,282.1 194.0,198.3 207.5,198.3" fill="#000" opacity=".18" transform="translate(3,4)"></polygon>
+                                <polygon points="207.5,119.4 194.0,119.4 194.0,31.9 671.0,31.9 671.0,103.4 781.9,103.4 781.9,326.5 272.9,326.5 272.9,282.1 194.0,282.1 194.0,198.3 207.5,198.3" fill="url(#bc-sink)" fill-opacity=".46" stroke="#7a848e" stroke-width="1.2"></polygon>
+                                <g stroke="#20272d" stroke-width="1" opacity=".34">
+                                    <line x1="201.4" y1="317.3" x2="774.5" y2="317.3"></line>
+                                    <line x1="201.4" y1="308.1" x2="774.5" y2="308.1"></line>
+                                    <line x1="201.4" y1="298.9" x2="774.5" y2="298.9"></line>
+                                    <line x1="201.4" y1="289.7" x2="774.5" y2="289.7"></line>
+                                    <line x1="201.4" y1="280.5" x2="774.5" y2="280.5"></line>
+                                    <line x1="201.4" y1="271.2" x2="774.5" y2="271.2"></line>
+                                    <line x1="201.4" y1="262.0" x2="774.5" y2="262.0"></line>
+                                    <line x1="201.4" y1="252.8" x2="774.5" y2="252.8"></line>
+                                    <line x1="201.4" y1="243.6" x2="774.5" y2="243.6"></line>
+                                    <line x1="201.4" y1="234.4" x2="774.5" y2="234.4"></line>
+                                    <line x1="201.4" y1="225.2" x2="774.5" y2="225.2"></line>
+                                    <line x1="201.4" y1="216.0" x2="774.5" y2="216.0"></line>
+                                    <line x1="201.4" y1="206.8" x2="774.5" y2="206.8"></line>
+                                    <line x1="201.4" y1="197.6" x2="774.5" y2="197.6"></line>
+                                    <line x1="201.4" y1="188.4" x2="774.5" y2="188.4"></line>
+                                    <line x1="201.4" y1="179.2" x2="774.5" y2="179.2"></line>
+                                    <line x1="201.4" y1="170.0" x2="774.5" y2="170.0"></line>
+                                    <line x1="201.4" y1="160.8" x2="774.5" y2="160.8"></line>
+                                    <line x1="201.4" y1="151.6" x2="774.5" y2="151.6"></line>
+                                    <line x1="201.4" y1="142.4" x2="774.5" y2="142.4"></line>
+                                    <line x1="201.4" y1="133.2" x2="774.5" y2="133.2"></line>
+                                    <line x1="201.4" y1="124.0" x2="774.5" y2="124.0"></line>
+                                    <line x1="201.4" y1="114.7" x2="774.5" y2="114.7"></line>
+                                    <line x1="201.4" y1="105.5" x2="774.5" y2="105.5"></line>
+                                    <line x1="201.4" y1="96.3" x2="774.5" y2="96.3"></line>
+                                    <line x1="201.4" y1="87.1" x2="774.5" y2="87.1"></line>
+                                    <line x1="201.4" y1="77.9" x2="774.5" y2="77.9"></line>
+                                    <line x1="201.4" y1="68.7" x2="774.5" y2="68.7"></line>
+                                    <line x1="201.4" y1="59.5" x2="774.5" y2="59.5"></line>
+                                    <line x1="201.4" y1="50.3" x2="774.5" y2="50.3"></line>
+                                    <line x1="201.4" y1="41.1" x2="774.5" y2="41.1"></line>
                                 </g>
-                                <circle r="19" fill="#20262c" stroke="#38414a"></circle>
-                                <circle r="12" fill="#2a323a" stroke="#3d4750"></circle>
-                            </g>
-                            <rect x="0" y="0" width="800" height="340" rx="8" fill="url(#bc-pcb)" stroke="#2a3138" stroke-width="1.5"></rect>
-                            <rect x="16" y="14" width="768" height="312" rx="6" fill="none" stroke="#20262c"></rect>
-                            <g fill="#0b0e11" stroke="#2c333a">
-                                <circle cx="16" cy="16" r="5"></circle>
-                                <circle cx="784" cy="16" r="5"></circle>
-                                <circle cx="16" cy="324" r="5"></circle>
-                                <circle cx="784" cy="324" r="5"></circle>
-                                <circle cx="322" cy="34" r="4.5"></circle>
-                                <circle cx="570" cy="34" r="4.5"></circle>
-                                <circle cx="322" cy="240" r="4.5"></circle>
-                                <circle cx="570" cy="240" r="4.5"></circle>
-                            </g>
-                            <g fill="none" stroke="#1e252b" stroke-width="1" opacity=".9">
-                                <path d="M 120 300 H 560"></path>
-                                <path d="M 120 312 H 560"></path>
-                                <path d="M 210 60 V 250"></path>
-                                <path d="M 222 60 V 250"></path>
-                            </g>
-
-                            <g id="bc-power-flow-group" fill="none" stroke="#fbbf24" stroke-width="2.5" stroke-dasharray="10 14" stroke-linecap="round" opacity=".9">
-                                <path id="bc-power-flow" d="M 630 264 L 772 264 L 772 14 L 292 14 L 292 28"></path>
-                            </g>
-
-                            <g>
-                                <rect x="2" y="36" width="26" height="26" rx="2" fill="#16191d" stroke="#2a3138"></rect>
-                                <rect x="0" y="140" width="32" height="10" fill="#0e1114"></rect>
-                                <rect x="2" y="100" width="30" height="40" rx="3" fill="#2b3239" stroke="#3c444c"></rect>
-                                <rect x="7" y="106" width="20" height="12" rx="1.5" fill="#0c0f12"></rect>
-                                <rect x="7" y="122" width="20" height="12" rx="1.5" fill="#0c0f12"></rect>
-                                <rect x="0" y="192" width="32" height="10" fill="#0e1114"></rect>
-                                <rect x="2" y="152" width="30" height="40" rx="3" fill="#233b52" stroke="#3a5f86"></rect>
-                                <rect x="7" y="158" width="20" height="12" rx="1.5" fill="#0c0f12"></rect>
-                                <rect x="7" y="174" width="20" height="12" rx="1.5" fill="#0c0f12"></rect>
-                                <rect x="0" y="244" width="32" height="12" fill="#0e1114"></rect>
-                                <rect x="2" y="200" width="30" height="44" rx="3" fill="#2b3239" stroke="#3c444c"></rect>
-                                <rect x="7" y="208" width="20" height="26" rx="2" fill="#0c0f12"></rect>
-                                <circle id="bc-lan-led" cx="12" cy="239" r="3.4" fill="#34d399"></circle>
-                            </g>
-
-                            <g>
-                                <rect x="58" y="234" width="44" height="10" fill="#0f1216"></rect>
-                                <rect x="58" y="26" width="44" height="208" rx="3" fill="#1d2329" stroke="#303841"></rect>
-                                <rect x="65" y="34" width="30" height="188" rx="2" fill="#2a323a"></rect>
-                                <rect x="66" y="42" width="28" height="60" rx="2" fill="#333c45"></rect>
-                                <rect x="66" y="110" width="28" height="60" rx="2" fill="#333c45"></rect>
-                                <rect x="54" y="224" width="52" height="14" rx="2" fill="#2f3840" stroke="#3d4750"></rect>
-                                <circle cx="80" cy="32" r="4" fill="#232a31" stroke="#343d46"></circle>
-                            </g>
-
-                            <g>
-                                <rect x="137" y="198" width="59" height="10" fill="#0f1216"></rect>
-                                <rect x="137" y="155" width="59" height="43" rx="3" fill="#20262c" stroke="#333b43"></rect>
-                                <rect x="144" y="161" width="45" height="31" rx="2" fill="#171c21"></rect>
-                                <rect x="240" y="251" width="49" height="8" fill="#0f1216"></rect>
-                                <rect x="240" y="214" width="49" height="37" rx="2" fill="#20262c" stroke="#333b43"></rect>
-                                <rect x="148" y="227" width="30" height="7" fill="#0f1216"></rect>
-                                <rect x="148" y="205" width="30" height="22" rx="2" fill="#20262c" stroke="#333b43"></rect>
-                                <rect x="200" y="196" width="20" height="6" fill="#0f1216"></rect>
-                                <rect x="200" y="180" width="20" height="16" rx="2" fill="#20262c" stroke="#333b43"></rect>
-                            </g>
-
-                            <g fill="#16191d" stroke="#2a3138">
-                                <rect x="44" y="250" width="40" height="14" rx="2"></rect>
-                                <rect x="96" y="250" width="34" height="14" rx="2"></rect>
-                                <rect x="140" y="250" width="46" height="14" rx="2"></rect>
-                                <rect x="44" y="282" width="52" height="12" rx="2"></rect>
-                            </g>
-
-                            <g>
-                                <rect x="250" y="30" width="22" height="128" rx="3" fill="#4b535b" opacity=".75"></rect>
-                                <g>
-                                    <rect x="282" y="52" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="282" y="34" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="282" y="74" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="282" y="56" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="282" y="96" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="282" y="78" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="282" y="118" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="282" y="100" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="282" y="140" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="282" y="122" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="282" y="162" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="282" y="144" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
+                                <polygon points="207.5,119.4 194.0,119.4 194.0,31.9 671.0,31.9 671.0,103.4 781.9,103.4 781.9,326.5 272.9,326.5 272.9,282.1 194.0,282.1 194.0,198.3 207.5,198.3" fill="none" stroke="#828d97" stroke-width=".8" opacity=".4"></polygon>
+                                <ellipse id="bc-heat" cx="503.7" cy="180.2" rx="82" ry="58" fill="url(#bc-heat-grad)" opacity="0"></ellipse>
+                                <!-- Animated current on top of the heatsink so it stays at full brightness:
+                                     8-pin -> VRM phases -> APU, plus the memory rail. -->
+                                <g id="bc-power-flow-group">
+                                    <path d="M657.1 342.6 L657.1 274.2 L714.9 274.2 L714.9 241.9" stroke="#4a3f1e" stroke-width="3.8" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+                                    <path id="bc-power-flow" d="M657.1 342.6 L657.1 274.2 L714.9 274.2 L714.9 241.9" stroke="#fde047" stroke-width="2.1" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="9 13" stroke-opacity=".95"></path>
+                                    <path d="M714.9 212.1 L590.3 212.1 L590.3 180.2 L556.5 180.2" stroke="#1f3a49" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+                                    <path id="bc-vrm-flow-cpu" d="M714.9 212.1 L590.3 212.1 L590.3 180.2 L556.5 180.2" stroke="#7dd3fc" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="9 13" stroke-opacity=".95"></path>
+                                    <path d="M714.9 145.1 L647.3 145.1 L647.3 102.7 L615.7 102.7" stroke="#4a3520" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+                                    <path id="bc-vrm-flow-gpu" d="M714.9 145.1 L647.3 145.1 L647.3 102.7 L615.7 102.7" stroke="#fdba74" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="9 13" stroke-opacity=".95"></path>
                                 </g>
-                                <g fill="#232a31" stroke="#333c45">
-                                    <rect x="226" y="36" width="16" height="14" rx="2"></rect>
-                                    <rect x="226" y="56" width="16" height="14" rx="2"></rect>
-                                    <rect x="226" y="76" width="16" height="14" rx="2"></rect>
-                                    <rect x="226" y="96" width="16" height="14" rx="2"></rect>
-                                </g>
-                            </g>
-
-                            <g>
-                                <ellipse id="bc-cpu-vrm-glow" cx="620" cy="86" rx="66" ry="50" fill="url(#bc-vrm-blue)" opacity=".28"></ellipse>
-                                <ellipse id="bc-gpu-vrm-glow" cx="620" cy="172" rx="68" ry="74" fill="url(#bc-vrm-orange)" opacity=".28"></ellipse>
-                                <rect x="646" y="62" width="22" height="152" rx="3" fill="#4b535b" opacity=".75"></rect>
-                                <g>
-                                    <rect x="604" y="84" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="604" y="66" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="604" y="106" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="604" y="88" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="604" y="128" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="604" y="110" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="604" y="150" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="604" y="132" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="604" y="172" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="604" y="154" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="604" y="194" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="604" y="176" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                    <rect x="604" y="216" width="26" height="7" fill="#0f1216"></rect>
-                                    <rect x="604" y="198" width="26" height="18" rx="9" fill="#3a424a" stroke="#4a545e"></rect>
-                                </g>
-                                <g fill="#232a31" stroke="#333c45">
-                                    <rect x="676" y="96" width="16" height="14" rx="2"></rect>
-                                    <rect x="676" y="116" width="16" height="14" rx="2"></rect>
-                                    <rect x="676" y="136" width="16" height="14" rx="2"></rect>
-                                    <rect x="676" y="156" width="16" height="14" rx="2"></rect>
-                                </g>
-                            </g>
-
-                            <g>
-                                <circle cx="700" cy="44" r="21" fill="#20262c" stroke="#39414a"></circle>
-                                <circle cx="700" cy="44" r="14" fill="#343c44" stroke="#464f59"></circle>
-                                <circle cx="750" cy="30" r="14" fill="#12161a" stroke="#3d4750" stroke-width="2"></circle>
-                                <circle cx="750" cy="64" r="14" fill="#12161a" stroke="#3d4750" stroke-width="2"></circle>
-                            </g>
-
-                            <g>
-                                <rect x="385" y="215" width="126" height="14" fill="#14181c"></rect>
-                                <rect x="385" y="95" width="126" height="120" rx="3" fill="#242b32" stroke="#3b444d"></rect>
-                                <rect x="404" y="116" width="88" height="78" rx="2" fill="#565f68" stroke="#6b757e"></rect>
-                                <rect x="414" y="126" width="68" height="58" rx="1" fill="#4a535b"></rect>
-                            </g>
-
-                            <g>
-                                <rect x="322" y="300" width="254" height="30" fill="#14181c"></rect>
-                                <rect x="323" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="338" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="353" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="368" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="383" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="398" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="413" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="428" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="443" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="458" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="473" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="488" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="503" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="518" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="533" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="548" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="563" y="300" width="9" height="30" fill="#1c2126"></rect>
-                                <rect x="322" y="40" width="254" height="260" fill="#22272d"></rect>
-                                <rect x="323" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="338" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="353" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="368" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="383" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="398" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="413" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="428" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="443" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="458" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="473" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="488" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="503" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="518" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="533" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="548" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="563" y="41" width="9" height="258" fill="#343b43"></rect>
-                                <rect x="322" y="40" width="254" height="260" fill="none" stroke="#454e58"></rect>
-                                <ellipse id="bc-heat" cx="448" cy="155" rx="140" ry="112" fill="url(#bc-heat-grad)" opacity=".5"></ellipse>
-                                <rect x="385" y="95" width="126" height="120" rx="3" fill="none" stroke="#ffb27a" stroke-width="1.5" stroke-dasharray="5 5" opacity=".65"></rect>
-                            </g>
-
-                            <g fill="none" stroke-width="2.5" stroke-dasharray="9 12" stroke-linecap="round" opacity=".95">
-                                <path id="bc-vrm-flow-cpu" d="M 600 96 L 584 96 L 584 250 L 498 250" stroke="#38bdf8"></path>
-                                <path id="bc-vrm-flow-gpu" d="M 600 186 L 592 186 L 592 264 L 498 264" stroke="#fb923c"></path>
-                            </g>
-
-                            <g id="bc-fans" transform="translate(0,-58)">
-                                <g transform="translate(449,170)">
-                                    <ellipse cx="0" cy="8" rx="122" ry="122" fill="#000" opacity=".32"></ellipse>
-                                    <rect x="-122" y="-122" width="244" height="244" rx="16" fill="#171b1f" fill-opacity=".78" stroke="#3a434c"></rect>
-                                    <circle r="114" fill="#0e1216" fill-opacity=".86" stroke="#2f373f"></circle>
-                                    <g id="bc-fan1-blades">
-                                        <g fill="#39424b" stroke="#485259" stroke-width="1">
-                                            <rect x="-15" y="-106" width="30" height="82" rx="15"></rect>
-                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(40)"></rect>
-                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(80)"></rect>
-                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(120)"></rect>
-                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(160)"></rect>
-                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(200)"></rect>
-                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(240)"></rect>
-                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(280)"></rect>
-                                            <rect x="-15" y="-106" width="30" height="82" rx="15" transform="rotate(320)"></rect>
+                                <!-- add-on fan drawn like a real PC fan: square frame with corner mounts,
+                                     round inlet, nine swept blades. Frame edge matches the heatsink width. -->
+                                <g id='bc-fans'>
+                                    <g transform='translate(487.9,179.2)'>
+                                        <rect x="-147.3" y="-147.3" width="294.6" height="294.6" rx="20.6" fill="#161c22" fill-opacity=".34" stroke="#68737d" stroke-width="1.3"></rect>
+                                        <circle r="139.2" fill="#0c1115" fill-opacity=".16" stroke="#59646e" stroke-width="1"></circle>
+                                        <g fill="#39434c" fill-opacity=".5" stroke="#6d7881" stroke-width="1">
+                                            <circle cx="-124.5" cy="-124.5" r="11.0"></circle>
+                                            <circle cx="-124.5" cy="124.5" r="11.0"></circle>
+                                            <circle cx="124.5" cy="-124.5" r="11.0"></circle>
+                                            <circle cx="124.5" cy="124.5" r="11.0"></circle>
                                         </g>
-                                        <circle r="10" fill="#4d5760"></circle>
+                                        <g id="bc-fan1-blades">
+                                            <g fill="#78838d" fill-opacity=".62" stroke="#98a3ad" stroke-opacity=".5" stroke-width=".8" stroke-linejoin="round">
+                                                <path d="M34.7 0.0 C80.3 8.4 106.0 48.5 118.7 68.6 A137.112 137.112 0 0 1 33.2 133.0 C34.1 111.5 62.4 46.3 30.9 15.7 Z"></path>
+                                                <path d="M26.6 22.3 C56.1 58.1 50.0 105.3 46.9 128.8 A137.112 137.112 0 0 1 -60.1 123.2 C-45.6 107.4 18.0 75.6 13.5 31.9 Z"></path>
+                                                <path d="M6.0 34.1 C5.6 80.6 -29.4 112.9 -46.9 128.8 A137.112 137.112 0 0 1 -125.3 55.8 C-103.9 52.9 -34.8 69.5 -10.1 33.1 Z"></path>
+                                                <path d="M-17.3 30.0 C-47.5 65.3 -95.1 67.6 -118.7 68.6 A137.112 137.112 0 0 1 -131.8 -37.8 C-113.6 -26.2 -71.3 30.9 -29.1 18.9 Z"></path>
+                                                <path d="M-32.6 11.9 C-78.4 19.5 -116.2 -9.4 -135.0 -23.8 A137.112 137.112 0 0 1 -76.7 -113.7 C-70.2 -93.1 -74.5 -22.2 -34.4 -4.2 Z"></path>
+                                                <path d="M-32.6 -11.9 C-72.6 -35.4 -83.0 -81.9 -88.1 -105.0 A137.112 137.112 0 0 1 14.3 -136.4 C6.1 -116.5 -42.8 -64.9 -23.6 -25.4 Z"></path>
+                                                <path d="M-17.3 -30.0 C-32.8 -73.8 -11.0 -116.1 -0.0 -137.1 A137.112 137.112 0 0 1 98.6 -95.2 C79.5 -85.3 8.9 -77.2 -1.8 -34.6 Z"></path>
+                                                <path d="M6.0 -34.1 C22.3 -77.6 66.2 -96.0 88.1 -105.0 A137.112 137.112 0 0 1 136.8 -9.6 C115.8 -14.2 56.4 -53.4 20.9 -27.7 Z"></path>
+                                                <path d="M26.6 -22.3 C67.0 -45.2 112.4 -31.0 135.0 -23.8 A137.112 137.112 0 0 1 110.9 80.6 C97.8 63.5 77.6 -4.6 33.8 -7.8 Z"></path>
+                                            </g>
+                                            <circle r="34.3" fill="#78838d" fill-opacity=".62"></circle>
+                                        </g>
+                                        <circle r="32.7" fill="#1e252b" fill-opacity=".62" stroke="#69747e" stroke-width="1.1"></circle>
+                                        <circle r="13.7" fill="#2c343b" fill-opacity=".75" stroke="#5a656f"></circle>
                                     </g>
-                                    <circle r="28" fill="#20262c" stroke="#38414a"></circle>
-                                    <circle r="17" fill="#2a323a" stroke="#3d4750"></circle>
+                                </g>
+                                <g id="bc-backplate-fan" transform="translate(720,110)" style="display:none">
+                                    <rect x="-30" y="-30" width="60" height="60" rx="6" fill="#161c22" fill-opacity=".4" stroke="#68737d"></rect>
+                                    <circle r="27" fill="#0c1115" fill-opacity=".2" stroke="#59646e"></circle>
+                                    <g id="bc-fan2-blades" fill="#3b444d" stroke="#4e5860">
+                                        <rect x="-4" y="-25" width="9" height="18" rx="4"></rect>
+                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(45)"></rect>
+                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(90)"></rect>
+                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(135)"></rect>
+                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(180)"></rect>
+                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(225)"></rect>
+                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(270)"></rect>
+                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(315)"></rect>
+                                    </g>
                                 </g>
                             </g>
-
-                            <g>
-                                <rect x="588" y="296" width="86" height="26" fill="#0e1114"></rect>
-                                <rect x="588" y="266" width="86" height="30" rx="4" fill="#242a31" stroke="#39414a"></rect>
-                                <g fill="#0b0e11">
-                                    <rect x="594" y="271" width="17" height="9" rx="1.5"></rect>
-                                    <rect x="615" y="271" width="17" height="9" rx="1.5"></rect>
-                                    <rect x="636" y="271" width="17" height="9" rx="1.5"></rect>
-                                    <rect x="657" y="271" width="11" height="9" rx="1.5"></rect>
-                                    <rect x="594" y="283" width="17" height="9" rx="1.5"></rect>
-                                    <rect x="615" y="283" width="17" height="9" rx="1.5"></rect>
-                                    <rect x="636" y="283" width="17" height="9" rx="1.5"></rect>
-                                    <rect x="657" y="283" width="11" height="9" rx="1.5"></rect>
-                                </g>
-                                <rect x="682" y="294" width="54" height="24" fill="#0e1114"></rect>
-                                <rect x="682" y="266" width="54" height="28" rx="3" fill="#1f252b" stroke="#333b43"></rect>
-                                <rect x="744" y="294" width="50" height="24" fill="#0e1114"></rect>
-                                <rect x="744" y="266" width="50" height="28" rx="3" fill="#1f252b" stroke="#333b43"></rect>
-                            </g>
-
-                        </g>
-                    </svg>
+                        </svg>
                 </div>
 
                 <!-- Memory/Fabric: same idea, only shown when software.df_pstate / mem_clock_mhz are present. -->
