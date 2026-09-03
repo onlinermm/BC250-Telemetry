@@ -15,6 +15,7 @@
 #include <csignal>
 #include <dirent.h>
 #include <string>
+#include <sys/stat.h>
 
 #define PMBUS_ADDR 0x60
 #define PMBUS_PAGE       0x00
@@ -42,6 +43,13 @@ static constexpr uint16_t TEMP_MASK = 0x07FF;   // low 11 bits of the READ_TEMP1
                                                  // the upper bits aren't used in this PMIC's readings
 // Guards against I2C bus glitches: >250 A is obviously bus noise, not a real current reading.
 static constexpr int32_t IOUT_GLITCH_THRESHOLD_RAW = 2500;
+
+// CoolerControl File sensors read a single integer in Linux hwmon/sysfs form
+// (millidegrees Celsius). VRM temps come from PMBus, not hwmon, so they
+// wouldn't show up otherwise. Paths are under /run so they vanish on reboot.
+static constexpr const char *CC_SENSOR_DIR = "/run/bc250";
+static constexpr const char *CC_CPU_VRM_TEMP = "/run/bc250/cpu_vrm_temp";
+static constexpr const char *CC_GPU_VRM_TEMP = "/run/bc250/gpu_vrm_temp";
 
 static volatile sig_atomic_t g_running = 1;
 
@@ -207,6 +215,23 @@ string get_hwmon_dir(const string& target_name) {
     return "";
 }
 
+// Atomic write of millidegrees Celsius, matching /sys/class/hwmon/.../temp*_input.
+// Skips the update when the reading isn't valid so CoolerControl keeps the last
+// good value instead of seeing 0 °C and collapsing a fan curve.
+void write_coolercontrol_temp(const char *path, float temp_c, bool valid) {
+    if (!valid || temp_c < 0.0f || temp_c >= 250.0f) return;
+
+    const long millidegrees = lroundf(temp_c * 1000.0f);
+    string tmp = string(path) + ".tmp";
+    ofstream file(tmp);
+    if (!file.is_open()) return;
+    file << millidegrees << '\n';
+    file.close();
+    if (rename(tmp.c_str(), path) != 0) {
+        unlink(tmp.c_str());
+    }
+}
+
 long read_sysfs_long(const string& path) {
     ifstream file(path);
     if (file.is_open()) {
@@ -268,7 +293,12 @@ int main(int argc, char **argv) {
     if (!amdgpu_dir.empty()) cout << "[INFO] Found AMDGPU: " << amdgpu_dir << endl;
     if (!k10temp_dir.empty()) cout << "[INFO] Found k10temp: " << k10temp_dir << endl;
     if (!nvme_dir.empty()) cout << "[INFO] Found NVMe: " << nvme_dir << endl;
+    if (mkdir(CC_SENSOR_DIR, 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "[ERROR] Failed to create %s: %s\n", CC_SENSOR_DIR, strerror(errno));
+    }
     cout << "[INFO] Writing data to /run/apu_telemetry.json" << endl;
+    cout << "[INFO] CoolerControl sensors: " << CC_CPU_VRM_TEMP
+         << ", " << CC_GPU_VRM_TEMP << endl;
 
     int loop_counter = 0;
     long nvme_temp_raw = -1;
@@ -369,6 +399,9 @@ int main(int argc, char **argv) {
         } else {
             fprintf(stderr, "[ERROR] Failed to open /run/apu_telemetry.tmp for writing: %s\n", strerror(errno));
         }
+
+        write_coolercontrol_temp(CC_CPU_VRM_TEMP, cpu.temp, cpu.valid);
+        write_coolercontrol_temp(CC_GPU_VRM_TEMP, gpu.temp, gpu.valid);
 
         loop_counter++;
         usleep(LOOP_INTERVAL_US);

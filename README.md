@@ -31,6 +31,26 @@ If the I2C bus isn't found, the daemon doesn't crash-loop — it logs the
 issue, retries every ~10 s, and keeps serving everything that doesn't depend
 on I2C (CPU/GPU clocks, temperatures, fans).
 
+## CoolerControl (external / file sensors)
+
+CPU and GPU **VRM** temperatures come from PMBus, not from a kernel hwmon
+driver, so CoolerControl cannot pick them up automatically. The daemon also
+writes them as Linux sysfs integers (millidegrees Celsius) for CoolerControl
+**Custom Sensors → File**:
+
+| Sensor | Path | Example contents |
+|---|---|---|
+| CPU VRM | `/run/bc250/cpu_vrm_temp` | `45000` (= 45 °C) |
+| GPU VRM | `/run/bc250/gpu_vrm_temp` | `48000` (= 48 °C) |
+
+Die temps (k10temp / amdgpu), NCT, NVMe, and fans are already in hwmon —
+add those from CoolerControl's normal device list, not as file sensors.
+
+In CoolerControl: Settings → Custom Sensors → Add File sensor, point at one
+of the paths above, unit = temperature (millidegrees Celsius). Files are only
+created after a valid I2C/VRM reading; a later invalid sample leaves the last
+good value in place so a fan curve does not drop to 0 °C.
+
 ## Screenshots
 
 | Classic (`/`) | v2 — animated board diagram (`/v2/`) |
