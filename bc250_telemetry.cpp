@@ -44,12 +44,14 @@ static constexpr uint16_t TEMP_MASK = 0x07FF;   // low 11 bits of the READ_TEMP1
 // Guards against I2C bus glitches: >250 A is obviously bus noise, not a real current reading.
 static constexpr int32_t IOUT_GLITCH_THRESHOLD_RAW = 2500;
 
-// CoolerControl File sensors read a single integer in Linux hwmon/sysfs form
-// (millidegrees Celsius). VRM temps come from PMBus, not hwmon, so they
-// wouldn't show up otherwise. Paths are under /run so they vanish on reboot.
-static constexpr const char *CC_SENSOR_DIR = "/run/bc250";
+// External sensor files under /run (tmpfs): vanish on reboot, cheap to rewrite.
+// CoolerControl wants a sysfs integer (millidegrees C). MangoHud has no file
+// sensor — it cats a human-readable string via custom_text + exec.
+static constexpr const char *SENSOR_DIR = "/run/bc250";
 static constexpr const char *CC_CPU_VRM_TEMP = "/run/bc250/cpu_vrm_temp";
 static constexpr const char *CC_GPU_VRM_TEMP = "/run/bc250/gpu_vrm_temp";
+static constexpr const char *MH_CPU_VRM_TEMP = "/run/bc250/cpu_vrm_c";
+static constexpr const char *MH_GPU_VRM_TEMP = "/run/bc250/gpu_vrm_c";
 
 static volatile sig_atomic_t g_running = 1;
 
@@ -215,21 +217,25 @@ string get_hwmon_dir(const string& target_name) {
     return "";
 }
 
-// Atomic write of millidegrees Celsius, matching /sys/class/hwmon/.../temp*_input.
-// Skips the update when the reading isn't valid so CoolerControl keeps the last
-// good value instead of seeing 0 °C and collapsing a fan curve.
-void write_coolercontrol_temp(const char *path, float temp_c, bool valid) {
-    if (!valid || temp_c < 0.0f || temp_c >= 250.0f) return;
-
-    const long millidegrees = lroundf(temp_c * 1000.0f);
+// Atomic replace of a small /run file. Skipped entirely when the reading isn't
+// valid so CoolerControl / MangoHud keep the last good value instead of 0 °C.
+void write_run_file(const char *path, const string &contents) {
     string tmp = string(path) + ".tmp";
     ofstream file(tmp);
     if (!file.is_open()) return;
-    file << millidegrees << '\n';
+    file << contents;
     file.close();
     if (rename(tmp.c_str(), path) != 0) {
         unlink(tmp.c_str());
     }
+}
+
+void write_vrm_sensor_files(const char *cc_path, const char *mh_path, float temp_c, bool valid) {
+    if (!valid || temp_c < 0.0f || temp_c >= 250.0f) return;
+
+    const long rounded = lroundf(temp_c);
+    write_run_file(cc_path, to_string(rounded * 1000) + "\n");
+    write_run_file(mh_path, to_string(rounded) + "\xC2\xB0" "C\n");
 }
 
 long read_sysfs_long(const string& path) {
@@ -293,12 +299,14 @@ int main(int argc, char **argv) {
     if (!amdgpu_dir.empty()) cout << "[INFO] Found AMDGPU: " << amdgpu_dir << endl;
     if (!k10temp_dir.empty()) cout << "[INFO] Found k10temp: " << k10temp_dir << endl;
     if (!nvme_dir.empty()) cout << "[INFO] Found NVMe: " << nvme_dir << endl;
-    if (mkdir(CC_SENSOR_DIR, 0755) != 0 && errno != EEXIST) {
-        fprintf(stderr, "[ERROR] Failed to create %s: %s\n", CC_SENSOR_DIR, strerror(errno));
+    if (mkdir(SENSOR_DIR, 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "[ERROR] Failed to create %s: %s\n", SENSOR_DIR, strerror(errno));
     }
     cout << "[INFO] Writing data to /run/apu_telemetry.json" << endl;
     cout << "[INFO] CoolerControl sensors: " << CC_CPU_VRM_TEMP
          << ", " << CC_GPU_VRM_TEMP << endl;
+    cout << "[INFO] MangoHud sensors: " << MH_CPU_VRM_TEMP
+         << ", " << MH_GPU_VRM_TEMP << endl;
 
     int loop_counter = 0;
     long nvme_temp_raw = -1;
@@ -400,8 +408,8 @@ int main(int argc, char **argv) {
             fprintf(stderr, "[ERROR] Failed to open /run/apu_telemetry.tmp for writing: %s\n", strerror(errno));
         }
 
-        write_coolercontrol_temp(CC_CPU_VRM_TEMP, cpu.temp, cpu.valid);
-        write_coolercontrol_temp(CC_GPU_VRM_TEMP, gpu.temp, gpu.valid);
+        write_vrm_sensor_files(CC_CPU_VRM_TEMP, MH_CPU_VRM_TEMP, cpu.temp, cpu.valid);
+        write_vrm_sensor_files(CC_GPU_VRM_TEMP, MH_GPU_VRM_TEMP, gpu.temp, gpu.valid);
 
         loop_counter++;
         usleep(LOOP_INTERVAL_US);

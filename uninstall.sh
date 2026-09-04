@@ -36,7 +36,9 @@ sudo rm -f "$BIN_PATH"
 sudo rmdir "$(dirname "$BIN_PATH")" 2>/dev/null || true # remove /opt/bc250-telemetry if it's empty
 sudo rm -f /run/apu_telemetry.json /run/apu_telemetry.tmp
 sudo rm -f /run/bc250/cpu_vrm_temp /run/bc250/gpu_vrm_temp \
-    /run/bc250/cpu_vrm_temp.tmp /run/bc250/gpu_vrm_temp.tmp
+    /run/bc250/cpu_vrm_c /run/bc250/gpu_vrm_c \
+    /run/bc250/cpu_vrm_temp.tmp /run/bc250/gpu_vrm_temp.tmp \
+    /run/bc250/cpu_vrm_c.tmp /run/bc250/gpu_vrm_c.tmp
 sudo rmdir /run/bc250 2>/dev/null || true
 echo -e "${GREEN}✓ Binary removed from the system!${NC}\n"
 

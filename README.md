@@ -51,6 +51,19 @@ of the paths above, unit = temperature (millidegrees Celsius). Files are only
 created after a valid I2C/VRM reading; a later invalid sample leaves the last
 good value in place so a fan curve does not drop to 0 °C.
 
+## MangoHud
+
+MangoHud cannot point at a millidegree file the way CoolerControl can. The
+daemon therefore also writes a human-readable string that you `cat` from the
+overlay (`custom_text` + `exec`, which needs `legacy_layout=0`):
+
+| Sensor | Path | Example contents |
+|---|---|---|
+| CPU VRM | `/run/bc250/cpu_vrm_c` | `45°C` |
+| GPU VRM | `/run/bc250/gpu_vrm_c` | `48°C` |
+
+A drop-in fragment lives in [`mangohud/MangoHud-bc250.conf`](mangohud/MangoHud-bc250.conf) — paste it into `~/.config/MangoHud/MangoHud.conf` (or a per-game `~/.config/MangoHud/<app>.conf`). It sets `font_size_secondary=24` because MangoHud draws `custom_text`/`exec` in the secondary font (default 0.55× `font_size`). Die temps stay on MangoHud's normal `cpu_temp` / `gpu_temp`.
+
 ## Screenshots
 
 | Classic (`/`) | v2 — animated board diagram (`/v2/`) |
