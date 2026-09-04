@@ -239,8 +239,7 @@ else
     echo -e "${RED}=== Installation finished, but with problems ===${NC}"
 fi
 echo -e "Your monitoring is now running. Data lives in /run/apu_telemetry.json."
-echo -e "VRM temps for CoolerControl: /run/bc250/cpu_vrm_temp and /run/bc250/gpu_vrm_temp"
-echo -e "VRM temps for MangoHud: /run/bc250/cpu_vrm_c and /run/bc250/gpu_vrm_c (see mangohud/MangoHud-bc250.conf)"
+echo -e "PMBus-only sensors (CoolerControl/MangoHud): /run/bc250/ (see mangohud/MangoHud-bc250.conf)"
 if [ "$CHOSEN_DASHBOARD" = "v2" ]; then
     echo -e "Web UI (default v2 — animated board diagram): http://localhost:8090"
     echo -e "The classic HUD (v1) is still available at http://localhost:8090/index.html"

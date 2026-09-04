@@ -53,16 +53,25 @@ good value in place so a fan curve does not drop to 0 °C.
 
 ## MangoHud
 
-MangoHud cannot point at a millidegree file the way CoolerControl can. The
-daemon therefore also writes a human-readable string that you `cat` from the
-overlay (`custom_text` + `exec`, which needs `legacy_layout=0`):
+Only **PMBus / VRM** metrics go to `/run/bc250` — everything else is already
+in hwmon or MangoHud's built-in lines (`cpu_temp`, `gpu_temp`, `cpu_mhz`,
+`gpu_core_clock`, `gpu_power`, etc.). Human-readable strings for the overlay
+(`custom_text` + `exec`, needs `legacy_layout=0`):
 
 | Sensor | Path | Example contents |
 |---|---|---|
-| CPU VRM | `/run/bc250/cpu_vrm_c` | `45°C` |
-| GPU VRM | `/run/bc250/gpu_vrm_c` | `48°C` |
+| CPU VRM temp | `/run/bc250/cpu_vrm_c` | `45°C` |
+| GPU VRM temp | `/run/bc250/gpu_vrm_c` | `48°C` |
+| 12 V VIN | `/run/bc250/vin` | `12.22V` |
+| CPU VOUT | `/run/bc250/cpu_vout` | `0.78V` |
+| GPU VOUT | `/run/bc250/gpu_vout` | `0.65V` |
+| CPU IOUT | `/run/bc250/cpu_iout` | `2.8A` |
+| GPU IOUT | `/run/bc250/gpu_iout` | `12.0A` |
+| CPU POUT | `/run/bc250/cpu_pout` | `2.2W` |
+| GPU POUT | `/run/bc250/gpu_pout` | `7.8W` |
+| VRM total | `/run/bc250/total_power` | `10.0W` |
 
-A drop-in fragment lives in [`mangohud/MangoHud-bc250.conf`](mangohud/MangoHud-bc250.conf) — paste it into `~/.config/MangoHud/MangoHud.conf` (or a per-game `~/.config/MangoHud/<app>.conf`). It sets `font_size_secondary=24` because MangoHud draws `custom_text`/`exec` in the secondary font (default 0.55× `font_size`). Die temps stay on MangoHud's normal `cpu_temp` / `gpu_temp`.
+A drop-in fragment lives in [`mangohud/MangoHud-bc250.conf`](mangohud/MangoHud-bc250.conf). It sets `font_size_secondary=24` because MangoHud draws `custom_text`/`exec` in the secondary font (default 0.55× `font_size`).
 
 ## Screenshots
 

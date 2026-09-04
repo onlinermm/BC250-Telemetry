@@ -16,6 +16,7 @@
 #include <dirent.h>
 #include <string>
 #include <sys/stat.h>
+#include <cstdarg>
 
 #define PMBUS_ADDR 0x60
 #define PMBUS_PAGE       0x00
@@ -47,11 +48,9 @@ static constexpr int32_t IOUT_GLITCH_THRESHOLD_RAW = 2500;
 // External sensor files under /run (tmpfs): vanish on reboot, cheap to rewrite.
 // CoolerControl wants a sysfs integer (millidegrees C). MangoHud has no file
 // sensor — it cats a human-readable string via custom_text + exec.
+// External sensor files under /run (tmpfs): PMBus-only metrics that have no
+// hwmon driver. Die temps, clocks, fans, NVMe, NCT — use hwmon / MangoHud built-ins.
 static constexpr const char *SENSOR_DIR = "/run/bc250";
-static constexpr const char *CC_CPU_VRM_TEMP = "/run/bc250/cpu_vrm_temp";
-static constexpr const char *CC_GPU_VRM_TEMP = "/run/bc250/gpu_vrm_temp";
-static constexpr const char *MH_CPU_VRM_TEMP = "/run/bc250/cpu_vrm_c";
-static constexpr const char *MH_GPU_VRM_TEMP = "/run/bc250/gpu_vrm_c";
 
 static volatile sig_atomic_t g_running = 1;
 
@@ -230,12 +229,26 @@ void write_run_file(const char *path, const string &contents) {
     }
 }
 
-void write_vrm_sensor_files(const char *cc_path, const char *mh_path, float temp_c, bool valid) {
+void write_sensor(const char *name, bool valid, const char *fmt, ...) {
+    if (!valid) return;
+
+    char path[192];
+    char buf[64];
+    snprintf(path, sizeof(path), "%s/%s", SENSOR_DIR, name);
+
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    write_run_file(path, buf);
+}
+
+void write_temp_pair(const char *cc_name, const char *mh_name, float temp_c, bool valid) {
     if (!valid || temp_c < 0.0f || temp_c >= 250.0f) return;
 
     const long rounded = lroundf(temp_c);
-    write_run_file(cc_path, to_string(rounded * 1000) + "\n");
-    write_run_file(mh_path, to_string(rounded) + "\xC2\xB0" "C\n");
+    write_sensor(cc_name, true, "%ld\n", rounded * 1000);
+    write_sensor(mh_name, true, "%ld\xC2\xB0" "C\n", rounded);
 }
 
 long read_sysfs_long(const string& path) {
@@ -303,10 +316,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[ERROR] Failed to create %s: %s\n", SENSOR_DIR, strerror(errno));
     }
     cout << "[INFO] Writing data to /run/apu_telemetry.json" << endl;
-    cout << "[INFO] CoolerControl sensors: " << CC_CPU_VRM_TEMP
-         << ", " << CC_GPU_VRM_TEMP << endl;
-    cout << "[INFO] MangoHud sensors: " << MH_CPU_VRM_TEMP
-         << ", " << MH_GPU_VRM_TEMP << endl;
+    cout << "[INFO] Writing PMBus-only sensors to " << SENSOR_DIR << endl;
 
     int loop_counter = 0;
     long nvme_temp_raw = -1;
@@ -408,8 +418,16 @@ int main(int argc, char **argv) {
             fprintf(stderr, "[ERROR] Failed to open /run/apu_telemetry.tmp for writing: %s\n", strerror(errno));
         }
 
-        write_vrm_sensor_files(CC_CPU_VRM_TEMP, MH_CPU_VRM_TEMP, cpu.temp, cpu.valid);
-        write_vrm_sensor_files(CC_GPU_VRM_TEMP, MH_GPU_VRM_TEMP, gpu.temp, gpu.valid);
+        write_temp_pair("cpu_vrm_temp", "cpu_vrm_c", cpu.temp, cpu.valid);
+        write_temp_pair("gpu_vrm_temp", "gpu_vrm_c", gpu.temp, gpu.valid);
+        write_sensor("vin", cpu.valid || gpu.valid, "%.2fV\n", cpu.valid ? cpu.vin : gpu.vin);
+        write_sensor("cpu_vout", cpu.valid, "%.2fV\n", cpu.vout);
+        write_sensor("gpu_vout", gpu.valid, "%.2fV\n", gpu.vout);
+        write_sensor("cpu_iout", cpu.valid, "%.1fA\n", cpu.iout);
+        write_sensor("gpu_iout", gpu.valid, "%.1fA\n", gpu.iout);
+        write_sensor("cpu_pout", cpu.valid, "%.1fW\n", cpu.pout);
+        write_sensor("gpu_pout", gpu.valid, "%.1fW\n", gpu.pout);
+        write_sensor("total_power", cpu.valid || gpu.valid, "%.1fW\n", total_power);
 
         loop_counter++;
         usleep(LOOP_INTERVAL_US);
