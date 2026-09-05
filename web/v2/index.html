@@ -380,8 +380,11 @@
                     </div>
                 </div>
 
-                <!-- ~30s of history (43 points at a 700ms poll interval), smoothed via
-                     Catmull-Rom -> cubic Bezier (spark() in app.js) rather than drawn as straight lines. -->
+                <!-- History window is selectable: 30s / 1m / 2m, 30s by default. The buffer
+                     always holds the longest one (171 points at a 700ms poll interval) and a
+                     shorter selection draws its tail, so switching loses nothing. Both cards
+                     drive one shared setting. Smoothed via Catmull-Rom -> cubic Bezier
+                     (spark() in app.js) rather than drawn as straight lines. -->
                 <div class="board-chart">
                     <svg viewBox="0 0 200 100" preserveAspectRatio="none" class="board-chart-svg">
                         <path class="chart-area accent-cpu-text" id="v2-cpu-chart-area"></path>
@@ -391,7 +394,7 @@
                     <div class="board-chart-legend">
                         <span class="legend-item accent-cpu-text"><span class="legend-swatch temp"></span>TEMP</span>
                         <span class="legend-item"><span class="legend-swatch freq"></span>CLOCK</span>
-                        <span class="legend-window">LAST 30S</span>
+                        <span class="legend-window" role="group" aria-label="Chart window"><button type="button" class="win-btn" data-secs="30">30S</button><button type="button" class="win-btn" data-secs="60">1M</button><button type="button" class="win-btn" data-secs="120">2M</button></span>
                     </div>
                 </div>
 
@@ -454,7 +457,7 @@
                     <div class="board-chart-legend">
                         <span class="legend-item accent-gpu-text"><span class="legend-swatch temp"></span>TEMP</span>
                         <span class="legend-item"><span class="legend-swatch freq"></span>CLOCK</span>
-                        <span class="legend-window">LAST 30S</span>
+                        <span class="legend-window" role="group" aria-label="Chart window"><button type="button" class="win-btn" data-secs="30">30S</button><button type="button" class="win-btn" data-secs="60">1M</button><button type="button" class="win-btn" data-secs="120">2M</button></span>
                     </div>
                 </div>
 
