@@ -205,6 +205,33 @@ body {
 .accent-gpu-text { color: var(--accent-gpu) !important; }
 .accent-amber-text { color: var(--accent-amber) !important; }
 
+/* Chip-reported STATUS_TEMPERATURE/STATUS_IOUT fault & warning bits — hidden
+   unless the PMIC itself has actually latched the bit (see bc250_telemetry.cpp). */
+.fault-badge {
+    display: none;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .5px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+.fault-badge.active-warning {
+    display: inline-block;
+    color: var(--status-warning);
+    background: rgba(251, 191, 36, .12);
+    border: 1px solid rgba(251, 191, 36, .4);
+}
+.fault-badge.active-fault {
+    display: inline-block;
+    color: var(--status-critical);
+    background: rgba(251, 113, 133, .15);
+    border: 1px solid rgba(251, 113, 133, .5);
+    animation: v2-ppt-blink .8s ease-in-out infinite;
+}
+
 .mini-bar {
     margin-top: 7px; height: 2px; border-radius: 1px;
     background: rgba(255, 255, 255, .07); overflow: hidden;
