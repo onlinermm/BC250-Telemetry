@@ -266,6 +266,24 @@ body {
 .legend-swatch { width: 10px; height: 2px; display: inline-block; background: currentColor; }
 .legend-swatch.freq { background: #94a3b8; opacity: .45; }
 
+/* Chart window picker. Sits where the static "LAST 30S" label was, so the
+   legend row keeps its height and nothing below it shifts. */
+.legend-window { display: flex; align-items: center; gap: 2px; }
+.win-btn {
+    font: inherit; letter-spacing: inherit; color: #64748b;
+    background: transparent; border: 1px solid transparent; border-radius: 3px;
+    padding: 2px 5px; cursor: pointer; line-height: 1;
+    transition: color .12s ease, background-color .12s ease, border-color .12s ease;
+}
+.win-btn:hover { color: #94a3b8; background: rgba(255, 255, 255, .04); }
+.win-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.win-btn.is-on {
+    color: var(--accent);
+    border-color: rgba(56, 189, 248, .35);
+    background: rgba(56, 189, 248, .10);
+}
+@media (prefers-reduced-motion: reduce) { .win-btn { transition: none; } }
+
 /* Small, low-key link for switching between v1 and v2 — pinned to the
    bottom of the viewport like v1's, rather than scrolling with the content
    (v2's page isn't locked to a single screen height like v1's is). */
