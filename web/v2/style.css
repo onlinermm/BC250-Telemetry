@@ -205,6 +205,33 @@ body {
 .accent-gpu-text { color: var(--accent-gpu) !important; }
 .accent-amber-text { color: var(--accent-amber) !important; }
 
+/* Chip-reported STATUS_TEMPERATURE/STATUS_IOUT fault & warning bits — hidden
+   unless the PMIC itself has actually latched the bit (see bc250_telemetry.cpp). */
+.fault-badge {
+    display: none;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .5px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+.fault-badge.active-warning {
+    display: inline-block;
+    color: var(--status-warning);
+    background: rgba(251, 191, 36, .12);
+    border: 1px solid rgba(251, 191, 36, .4);
+}
+.fault-badge.active-fault {
+    display: inline-block;
+    color: var(--status-critical);
+    background: rgba(251, 113, 133, .15);
+    border: 1px solid rgba(251, 113, 133, .5);
+    animation: v2-ppt-blink .8s ease-in-out infinite;
+}
+
 .mini-bar {
     margin-top: 7px; height: 2px; border-radius: 1px;
     background: rgba(255, 255, 255, .07); overflow: hidden;
@@ -265,6 +292,24 @@ body {
 .legend-item { display: flex; align-items: center; gap: 5px; }
 .legend-swatch { width: 10px; height: 2px; display: inline-block; background: currentColor; }
 .legend-swatch.freq { background: #94a3b8; opacity: .45; }
+
+/* Chart window picker. Sits where the static "LAST 30S" label was, so the
+   legend row keeps its height and nothing below it shifts. */
+.legend-window { display: flex; align-items: center; gap: 2px; }
+.win-btn {
+    font: inherit; letter-spacing: inherit; color: #64748b;
+    background: transparent; border: 1px solid transparent; border-radius: 3px;
+    padding: 2px 5px; cursor: pointer; line-height: 1;
+    transition: color .12s ease, background-color .12s ease, border-color .12s ease;
+}
+.win-btn:hover { color: #94a3b8; background: rgba(255, 255, 255, .04); }
+.win-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.win-btn.is-on {
+    color: var(--accent);
+    border-color: rgba(56, 189, 248, .35);
+    background: rgba(56, 189, 248, .10);
+}
+@media (prefers-reduced-motion: reduce) { .win-btn { transition: none; } }
 
 /* Small, low-key link for switching between v1 and v2 — pinned to the
    bottom of the viewport like v1's, rather than scrolling with the content

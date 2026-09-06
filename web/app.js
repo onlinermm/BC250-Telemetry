@@ -54,6 +54,31 @@ function setTempStatus(id, tempC, thresholds) {
     el.dataset.status = status;
 }
 
+// ==========================================
+// CHIP-REPORTED FAULT BADGES (STATUS_TEMPERATURE / STATUS_IOUT bits)
+// Only shown when the PMIC itself has latched the bit — not a software guess.
+// ==========================================
+function setFaultBadge(id, warning, fault, kind) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const state = fault ? 'fault' : (warning ? 'warning' : 'none');
+    if (el.dataset.faultState === state) return;
+    el.classList.remove('active-warning', 'active-fault');
+    if (state === 'fault') {
+        el.classList.add('active-fault');
+        el.textContent = 'FAULT';
+        el.title = `PMIC ${kind} FAULT bit is set`;
+    } else if (state === 'warning') {
+        el.classList.add('active-warning');
+        el.textContent = 'WARN';
+        el.title = `PMIC ${kind} WARNING bit is set`;
+    } else {
+        el.textContent = '';
+        el.title = '';
+    }
+    el.dataset.faultState = state;
+}
+
 function setGauge(id, value, max) {
     const gauge = document.getElementById(id);
     if (!gauge) return;
@@ -139,10 +164,12 @@ function updateUI() {
         setBar('cpu-vin-bar', data.hardware.cpu.vin);
         setBar('cpu-vout-bar', data.hardware.cpu.vout);
         setBar('cpu-iout-bar', data.hardware.cpu.iout);
+        setFaultBadge('cpu-iout-fault-badge', data.hardware.cpu.iout_warning, data.hardware.cpu.iout_fault, 'over-current (STATUS_IOUT)');
         setBar('cpu-pout-bar', data.hardware.cpu.pout);
         setBar('cpu-temp-bar', data.hardware.cpu.temp);
         setTempStatus('cpu-temp-figure', data.hardware.cpu.temp, TEMP_THRESH.vrmTemp);
         setTempStatus('cpu-temp-bar', data.hardware.cpu.temp, TEMP_THRESH.vrmTemp);
+        setFaultBadge('cpu-temp-fault-badge', data.hardware.cpu.temp_warning, data.hardware.cpu.temp_fault, 'over-temperature (STATUS_TEMPERATURE)');
     }
 
     if (data.hardware.gpu.valid) {
@@ -155,10 +182,12 @@ function updateUI() {
         setBar('gpu-vin-bar', data.hardware.gpu.vin);
         setBar('gpu-vout-bar', data.hardware.gpu.vout);
         setBar('gpu-iout-bar', data.hardware.gpu.iout);
+        setFaultBadge('gpu-iout-fault-badge', data.hardware.gpu.iout_warning, data.hardware.gpu.iout_fault, 'over-current (STATUS_IOUT)');
         setBar('gpu-pout-bar', data.hardware.gpu.pout);
         setBar('gpu-temp-bar', data.hardware.gpu.temp);
         setTempStatus('gpu-temp-figure', data.hardware.gpu.temp, TEMP_THRESH.vrmTemp);
         setTempStatus('gpu-temp-bar', data.hardware.gpu.temp, TEMP_THRESH.vrmTemp);
+        setFaultBadge('gpu-temp-fault-badge', data.hardware.gpu.temp_warning, data.hardware.gpu.temp_fault, 'over-temperature (STATUS_TEMPERATURE)');
     }
 
     if (data.software.cpu_temp_c >= 0) {

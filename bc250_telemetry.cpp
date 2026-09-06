@@ -24,6 +24,8 @@
 #define PMBUS_READ_VOUT  0x8B
 #define PMBUS_READ_IOUT  0x8C
 #define PMBUS_READ_TEMP1 0x8D
+#define PMBUS_STATUS_IOUT 0x7B
+#define PMBUS_STATUS_TEMP 0x7D
 
 using namespace std;
 
@@ -51,6 +53,14 @@ static constexpr int32_t IOUT_GLITCH_THRESHOLD_RAW = 2500;
 // External sensor files under /run (tmpfs): PMBus-only metrics that have no
 // hwmon driver. Die temps, clocks, fans, NVMe, NCT — use hwmon / MangoHud built-ins.
 static constexpr const char *SENSOR_DIR = "/run/bc250";
+
+// Fault/warning bits within STATUS_IOUT (0x7B) and STATUS_TEMPERATURE (0x7D) —
+// latched by the PMIC itself when a rail crosses protection thresholds set by
+// the board vendor, independent of any threshold guessed in software.
+static constexpr uint8_t STATUS_IOUT_OC_FAULT   = 0x80;
+static constexpr uint8_t STATUS_IOUT_OC_WARNING = 0x20;
+static constexpr uint8_t STATUS_TEMP_OT_FAULT   = 0x80;
+static constexpr uint8_t STATUS_TEMP_OT_WARNING = 0x40;
 
 static volatile sig_atomic_t g_running = 1;
 
@@ -80,13 +90,21 @@ int32_t i2c_smbus_read_word_data(int file, uint8_t command) {
     return 0x0FFFF & data.word;
 }
 
+int32_t i2c_smbus_read_byte_data(int file, uint8_t command) {
+    union i2c_smbus_data data;
+    if (i2c_smbus_access(file, I2C_SMBUS_READ, command, I2C_SMBUS_BYTE_DATA, &data)) return -1;
+    return 0xFF & data.byte;
+}
+
 struct Telemetry {
     float vin, vout, iout, temp, pout;
     bool valid;
+    bool iout_warning, iout_fault;
+    bool temp_warning, temp_fault;
 };
 
 Telemetry read_telemetry(int fd, uint8_t page) {
-    Telemetry t = {0, 0, 0, 0, 0, false};
+    Telemetry t = {0, 0, 0, 0, 0, false, false, false, false, false};
     if (fd < 0) return t; // I2C isn't available right now (not connected yet, or dropped) — don't crash
     i2c_smbus_write_byte_data(fd, PMBUS_PAGE, page);
     usleep(5000);
@@ -104,6 +122,16 @@ Telemetry read_telemetry(int fd, uint8_t page) {
     t.iout = iout_raw / IOUT_DIVISOR;
     t.temp = (float)(temp_raw & TEMP_MASK);
     t.pout = t.vout * t.iout;
+
+    // Hardware fault/warning bits, latched by the PMIC's own protection
+    // comparators — a missing read (-1) just leaves the flags false.
+    int32_t status_iout_raw = i2c_smbus_read_byte_data(fd, PMBUS_STATUS_IOUT);
+    int32_t status_temp_raw = i2c_smbus_read_byte_data(fd, PMBUS_STATUS_TEMP);
+    t.iout_warning = (status_iout_raw >= 0) && (status_iout_raw & STATUS_IOUT_OC_WARNING);
+    t.iout_fault   = (status_iout_raw >= 0) && (status_iout_raw & STATUS_IOUT_OC_FAULT);
+    t.temp_warning = (status_temp_raw >= 0) && (status_temp_raw & STATUS_TEMP_OT_WARNING);
+    t.temp_fault   = (status_temp_raw >= 0) && (status_temp_raw & STATUS_TEMP_OT_FAULT);
+
     return t;
 }
 
@@ -384,7 +412,11 @@ int main(int argc, char **argv) {
             file << "      \"vout\": " << fixed << setprecision(3) << cpu.vout << ",\n";
             file << "      \"iout\": " << fixed << setprecision(1) << cpu.iout << ",\n";
             file << "      \"pout\": " << fixed << setprecision(1) << cpu.pout << ",\n";
-            file << "      \"temp\": " << fixed << setprecision(1) << cpu.temp << "\n";
+            file << "      \"temp\": " << fixed << setprecision(1) << cpu.temp << ",\n";
+            file << "      \"iout_warning\": " << (cpu.iout_warning ? "true" : "false") << ",\n";
+            file << "      \"iout_fault\": " << (cpu.iout_fault ? "true" : "false") << ",\n";
+            file << "      \"temp_warning\": " << (cpu.temp_warning ? "true" : "false") << ",\n";
+            file << "      \"temp_fault\": " << (cpu.temp_fault ? "true" : "false") << "\n";
             file << "    },\n";
             file << "    \"gpu\": {\n";
             file << "      \"valid\": " << (gpu.valid ? "true" : "false") << ",\n";
@@ -392,7 +424,11 @@ int main(int argc, char **argv) {
             file << "      \"vout\": " << fixed << setprecision(3) << gpu.vout << ",\n";
             file << "      \"iout\": " << fixed << setprecision(1) << gpu.iout << ",\n";
             file << "      \"pout\": " << fixed << setprecision(1) << gpu.pout << ",\n";
-            file << "      \"temp\": " << fixed << setprecision(1) << gpu.temp << "\n";
+            file << "      \"temp\": " << fixed << setprecision(1) << gpu.temp << ",\n";
+            file << "      \"iout_warning\": " << (gpu.iout_warning ? "true" : "false") << ",\n";
+            file << "      \"iout_fault\": " << (gpu.iout_fault ? "true" : "false") << ",\n";
+            file << "      \"temp_warning\": " << (gpu.temp_warning ? "true" : "false") << ",\n";
+            file << "      \"temp_fault\": " << (gpu.temp_fault ? "true" : "false") << "\n";
             file << "    },\n";
             file << "    \"total_power\": " << fixed << setprecision(1) << total_power << ",\n";
             file << "    \"total_power_valid\": " << (total_power_valid ? "true" : "false") << "\n";

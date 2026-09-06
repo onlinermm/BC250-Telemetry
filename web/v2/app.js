@@ -4,14 +4,68 @@ const SMOOTHING_CRISP = 0.2; // for temps/fans — smooth, but without noticeabl
 let latest = null; // last known-valid frame — same as v1: never show a fake 0
 let frameReady = false; // true exactly once per new telemetry frame (~700ms) — gates the chart history push
 
-const HISTORY_LEN = 43; // ~30s of history at the daemon's 700ms poll interval
+// The daemon publishes a frame roughly every 700 ms, so a window in seconds
+// converts to a point count. The buffer always holds the longest window on
+// offer; a shorter selection draws its tail, so switching down and back up
+// loses nothing.
+const POLL_MS = 700;
+const WINDOWS = [
+    { secs: 30,  label: '30S' },
+    { secs: 60,  label: '1M'  },
+    { secs: 120, label: '2M'  },
+];
+const DEFAULT_WINDOW = 30;
+const pointsFor = (secs) => Math.round((secs * 1000) / POLL_MS);
+const HISTORY_MAX = pointsFor(WINDOWS[WINDOWS.length - 1].secs);
 const history = { cpuTemp: [], cpuFreq: [], gpuTemp: [], gpuClock: [] };
+
+let windowSecs = DEFAULT_WINDOW;
+try {
+    const saved = parseInt(localStorage.getItem('bc250.chartWindow'), 10);
+    if (WINDOWS.some((w) => w.secs === saved)) windowSecs = saved;
+} catch (e) { /* private window or blocked storage: keep the default */ }
 
 function pushHistory(key, value) {
     const arr = history[key];
     arr.push(value);
-    if (arr.length > HISTORY_LEN) arr.shift();
+    if (arr.length > HISTORY_MAX) arr.shift();
 }
+
+// The tail of a series for the selected window. Having fewer points than the
+// window asks for is normal right after load — spark() draws what it is given.
+const inWindow = (key) => history[key].slice(-pointsFor(windowSecs));
+
+function drawCharts() {
+    // minRange: keeps a few tenths of a degree / a couple hundred MHz of noise
+    // from filling the whole chart height — the real range has to be sizeable
+    // enough to actually earn that space.
+    setPath('v2-cpu-chart-area', spark(inWindow('cpuTemp'), 200, 100, true, 6));
+    setPath('v2-cpu-chart-temp', spark(inWindow('cpuTemp'), 200, 100, false, 6));
+    setPath('v2-cpu-chart-freq', spark(inWindow('cpuFreq'), 200, 100, false, 200));
+    setPath('v2-gpu-chart-area', spark(inWindow('gpuTemp'), 200, 100, true, 6));
+    setPath('v2-gpu-chart-temp', spark(inWindow('gpuTemp'), 200, 100, false, 6));
+    setPath('v2-gpu-chart-freq', spark(inWindow('gpuClock'), 200, 100, false, 200));
+}
+
+// Both cards carry the same buttons and drive one shared setting, so the CPU
+// and GPU charts always cover the same span and stay comparable.
+function setWindow(secs) {
+    windowSecs = secs;
+    try { localStorage.setItem('bc250.chartWindow', String(secs)); } catch (e) { /* ignore */ }
+    document.querySelectorAll('.win-btn').forEach((btn) => {
+        const on = Number(btn.dataset.secs) === secs;
+        btn.classList.toggle('is-on', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    drawCharts();   // repaint now instead of waiting for the next telemetry frame
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.win-btn').forEach((btn) => {
+        btn.addEventListener('click', () => setWindow(Number(btn.dataset.secs)));
+    });
+    setWindow(windowSecs);
+});
 
 // Catmull-Rom -> cubic Bezier: a single pass over the points gives a smooth
 // curve with no canvas/rAF involved.
@@ -92,6 +146,29 @@ function setCoreBadgeClass(id, count, stockAt, maxAt) {
     el.classList.remove('cores-maxed', 'cores-partial', 'cores-stock');
     el.classList.add(cls);
     el.dataset.coreClass = cls;
+}
+
+// Chip-reported STATUS_TEMPERATURE/STATUS_IOUT fault/warning bits — only
+// shown when the PMIC itself has latched the bit, never a software-guessed threshold.
+function setFaultBadge(id, warning, fault, kind) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const badgeState = fault ? 'fault' : (warning ? 'warning' : 'none');
+    if (el.dataset.faultState === badgeState) return;
+    el.classList.remove('active-warning', 'active-fault');
+    if (badgeState === 'fault') {
+        el.classList.add('active-fault');
+        el.textContent = 'FAULT';
+        el.title = `PMIC ${kind} FAULT bit is set`;
+    } else if (badgeState === 'warning') {
+        el.classList.add('active-warning');
+        el.textContent = 'WARN';
+        el.title = `PMIC ${kind} WARNING bit is set`;
+    } else {
+        el.textContent = '';
+        el.title = '';
+    }
+    el.dataset.faultState = badgeState;
 }
 
 function setDisplay(id, show) {
@@ -204,11 +281,19 @@ function updateUI() {
     const cpuIout = cpu.valid ? cpu.iout : (p.cpuIout ?? 0);
     const cpuPout = cpu.valid ? cpu.pout : (p.cpuPout ?? 0);
     const cpuT = cpu.valid ? cpu.temp : (p.cpuT ?? 0);
+    const cpuTempWarning = cpu.valid ? !!cpu.temp_warning : (p.cpuTempWarning ?? false);
+    const cpuTempFault = cpu.valid ? !!cpu.temp_fault : (p.cpuTempFault ?? false);
+    const cpuIoutWarning = cpu.valid ? !!cpu.iout_warning : (p.cpuIoutWarning ?? false);
+    const cpuIoutFault = cpu.valid ? !!cpu.iout_fault : (p.cpuIoutFault ?? false);
     const gpuVin = gpu.valid ? gpu.vin : (p.gpuVin ?? 0);
     const gpuVout = gpu.valid ? gpu.vout : (p.gpuVout ?? 0);
     const gpuIout = gpu.valid ? gpu.iout : (p.gpuIout ?? 0);
     const gpuPout = gpu.valid ? gpu.pout : (p.gpuPout ?? 0);
     const gpuT = gpu.valid ? gpu.temp : (p.gpuT ?? 0);
+    const gpuTempWarning = gpu.valid ? !!gpu.temp_warning : (p.gpuTempWarning ?? false);
+    const gpuTempFault = gpu.valid ? !!gpu.temp_fault : (p.gpuTempFault ?? false);
+    const gpuIoutWarning = gpu.valid ? !!gpu.iout_warning : (p.gpuIoutWarning ?? false);
+    const gpuIoutFault = gpu.valid ? !!gpu.iout_fault : (p.gpuIoutFault ?? false);
 
     const totalValid = hw.total_power_valid !== false;
     const total = pick(hw.total_power, cpuPout + gpuPout);
@@ -216,6 +301,8 @@ function updateUI() {
     state.prevFrame = {
         cpuDie, gpuDie, cpuFreq, gpuClock, ppt, nvme, t14, t15, fanRpm, fanPwm,
         cpuVin, cpuVout, cpuIout, cpuPout, cpuT, gpuVin, gpuVout, gpuIout, gpuPout, gpuT,
+        cpuTempWarning, cpuTempFault, gpuTempWarning, gpuTempFault,
+        cpuIoutWarning, cpuIoutFault, gpuIoutWarning, gpuIoutFault,
     };
 
     // --- History for the mini-charts (once per real telemetry frame, not per rAF tick) ---
@@ -225,15 +312,7 @@ function updateUI() {
         pushHistory('cpuFreq', cpuFreq);
         pushHistory('gpuTemp', gpuDie);
         pushHistory('gpuClock', gpuClock);
-        // minRange: keeps a few tenths of a degree / a couple hundred MHz of noise
-        // from filling the whole chart height — the real range has to be sizeable
-        // enough to actually earn that space.
-        setPath('v2-cpu-chart-area', spark(history.cpuTemp, 200, 100, true, 6));
-        setPath('v2-cpu-chart-temp', spark(history.cpuTemp, 200, 100, false, 6));
-        setPath('v2-cpu-chart-freq', spark(history.cpuFreq, 200, 100, false, 200));
-        setPath('v2-gpu-chart-area', spark(history.gpuTemp, 200, 100, true, 6));
-        setPath('v2-gpu-chart-temp', spark(history.gpuTemp, 200, 100, false, 6));
-        setPath('v2-gpu-chart-freq', spark(history.gpuClock, 200, 100, false, 200));
+        drawCharts();
     }
 
     // pptVal is computed once here (not inside paintBoard) — calling smooth() twice
@@ -329,6 +408,7 @@ function updateUI() {
     setBar('v2-cpu-vout-bar', cpuVout);
     setText('v2-cpu-iout', smooth('cpuIout', cpuIout).toFixed(1));
     setBar('v2-cpu-iout-bar', cpuIout);
+    setFaultBadge('v2-cpu-iout-fault-badge', cpuIoutWarning, cpuIoutFault, 'over-current (STATUS_IOUT)');
     setText('v2-cpu-pout', smooth('cpuPoutTxt', cpuPout).toFixed(1));
     setBar('v2-cpu-pout-bar', cpuPout);
     const cpuTVal = smooth('cpuT', cpuT, SMOOTHING_CRISP);
@@ -336,6 +416,7 @@ function updateUI() {
     setBar('v2-cpu-vrmtemp-bar', cpuTVal);
     setStatusClass('v2-cpu-vrmtemp-figure', cpuTVal, TEMP_THRESH.vrm);
     setStatusClass('v2-cpu-vrmtemp-bar', cpuTVal, TEMP_THRESH.vrm);
+    setFaultBadge('v2-cpu-temp-fault-badge', cpuTempWarning, cpuTempFault, 'over-temperature (STATUS_TEMPERATURE)');
 
     // --- GPU CORE ---
     setText('v2-gpu-die', gpuDie.toFixed(1));
@@ -348,6 +429,7 @@ function updateUI() {
     setBar('v2-gpu-vout-bar', gpuVout);
     setText('v2-gpu-iout', smooth('gpuIout', gpuIout).toFixed(1));
     setBar('v2-gpu-iout-bar', gpuIout);
+    setFaultBadge('v2-gpu-iout-fault-badge', gpuIoutWarning, gpuIoutFault, 'over-current (STATUS_IOUT)');
     setText('v2-gpu-pout', smooth('gpuPoutTxt', gpuPout).toFixed(1));
     setBar('v2-gpu-pout-bar', gpuPout);
     const gpuTVal = smooth('gpuT', gpuT, SMOOTHING_CRISP);
@@ -355,6 +437,7 @@ function updateUI() {
     setBar('v2-gpu-vrmtemp-bar', gpuTVal);
     setStatusClass('v2-gpu-vrmtemp-figure', gpuTVal, TEMP_THRESH.vrm);
     setStatusClass('v2-gpu-vrmtemp-bar', gpuTVal, TEMP_THRESH.vrm);
+    setFaultBadge('v2-gpu-temp-fault-badge', gpuTempWarning, gpuTempFault, 'over-temperature (STATUS_TEMPERATURE)');
 
 }
 
