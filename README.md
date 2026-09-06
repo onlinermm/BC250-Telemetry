@@ -31,6 +31,48 @@ If the I2C bus isn't found, the daemon doesn't crash-loop — it logs the
 issue, retries every ~10 s, and keeps serving everything that doesn't depend
 on I2C (CPU/GPU clocks, temperatures, fans).
 
+## CoolerControl (external / file sensors)
+
+CPU and GPU **VRM** temperatures come from PMBus, not from a kernel hwmon
+driver, so CoolerControl cannot pick them up automatically. The daemon also
+writes them as Linux sysfs integers (millidegrees Celsius) for CoolerControl
+**Custom Sensors → File**:
+
+| Sensor | Path | Example contents |
+|---|---|---|
+| CPU VRM | `/run/bc250/cpu_vrm_temp` | `45000` (= 45 °C) |
+| GPU VRM | `/run/bc250/gpu_vrm_temp` | `48000` (= 48 °C) |
+
+Die temps (k10temp / amdgpu), NCT, NVMe, and fans are already in hwmon —
+add those from CoolerControl's normal device list, not as file sensors.
+
+In CoolerControl: Settings → Custom Sensors → Add File sensor, point at one
+of the paths above, unit = temperature (millidegrees Celsius). Files are only
+created after a valid I2C/VRM reading; a later invalid sample leaves the last
+good value in place so a fan curve does not drop to 0 °C.
+
+## MangoHud
+
+Only **PMBus / VRM** metrics go to `/run/bc250` — everything else is already
+in hwmon or MangoHud's built-in lines (`cpu_temp`, `gpu_temp`, `cpu_mhz`,
+`gpu_core_clock`, `gpu_power`, etc.). Human-readable strings for the overlay
+(`custom_text` + `exec`, needs `legacy_layout=0`):
+
+| Sensor | Path | Example contents |
+|---|---|---|
+| CPU VRM temp | `/run/bc250/cpu_vrm_c` | `45°C` |
+| GPU VRM temp | `/run/bc250/gpu_vrm_c` | `48°C` |
+| 12 V VIN | `/run/bc250/vin` | `12.22V` |
+| CPU VOUT | `/run/bc250/cpu_vout` | `0.78V` |
+| GPU VOUT | `/run/bc250/gpu_vout` | `0.65V` |
+| CPU IOUT | `/run/bc250/cpu_iout` | `2.8A` |
+| GPU IOUT | `/run/bc250/gpu_iout` | `12.0A` |
+| CPU POUT | `/run/bc250/cpu_pout` | `2.2W` |
+| GPU POUT | `/run/bc250/gpu_pout` | `7.8W` |
+| VRM total | `/run/bc250/total_power` | `10.0W` |
+
+A drop-in fragment lives in [`mangohud/MangoHud-bc250.conf`](mangohud/MangoHud-bc250.conf). It sets `font_size_secondary=24` because MangoHud draws `custom_text`/`exec` in the secondary font (default 0.55× `font_size`).
+
 ## Screenshots
 
 | Classic (`/`) | v2 — animated board diagram (`/v2/`) |
