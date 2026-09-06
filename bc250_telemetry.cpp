@@ -15,6 +15,8 @@
 #include <csignal>
 #include <dirent.h>
 #include <string>
+#include <sys/stat.h>
+#include <cstdarg>
 
 #define PMBUS_ADDR 0x60
 #define PMBUS_PAGE       0x00
@@ -44,6 +46,13 @@ static constexpr uint16_t TEMP_MASK = 0x07FF;   // low 11 bits of the READ_TEMP1
                                                  // the upper bits aren't used in this PMIC's readings
 // Guards against I2C bus glitches: >250 A is obviously bus noise, not a real current reading.
 static constexpr int32_t IOUT_GLITCH_THRESHOLD_RAW = 2500;
+
+// External sensor files under /run (tmpfs): vanish on reboot, cheap to rewrite.
+// CoolerControl wants a sysfs integer (millidegrees C). MangoHud has no file
+// sensor — it cats a human-readable string via custom_text + exec.
+// External sensor files under /run (tmpfs): PMBus-only metrics that have no
+// hwmon driver. Die temps, clocks, fans, NVMe, NCT — use hwmon / MangoHud built-ins.
+static constexpr const char *SENSOR_DIR = "/run/bc250";
 
 // Fault/warning bits within STATUS_IOUT (0x7B) and STATUS_TEMPERATURE (0x7D) —
 // latched by the PMIC itself when a rail crosses protection thresholds set by
@@ -235,6 +244,41 @@ string get_hwmon_dir(const string& target_name) {
     return "";
 }
 
+// Atomic replace of a small /run file. Skipped entirely when the reading isn't
+// valid so CoolerControl / MangoHud keep the last good value instead of 0 °C.
+void write_run_file(const char *path, const string &contents) {
+    string tmp = string(path) + ".tmp";
+    ofstream file(tmp);
+    if (!file.is_open()) return;
+    file << contents;
+    file.close();
+    if (rename(tmp.c_str(), path) != 0) {
+        unlink(tmp.c_str());
+    }
+}
+
+void write_sensor(const char *name, bool valid, const char *fmt, ...) {
+    if (!valid) return;
+
+    char path[192];
+    char buf[64];
+    snprintf(path, sizeof(path), "%s/%s", SENSOR_DIR, name);
+
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    write_run_file(path, buf);
+}
+
+void write_temp_pair(const char *cc_name, const char *mh_name, float temp_c, bool valid) {
+    if (!valid || temp_c < 0.0f || temp_c >= 250.0f) return;
+
+    const long rounded = lroundf(temp_c);
+    write_sensor(cc_name, true, "%ld\n", rounded * 1000);
+    write_sensor(mh_name, true, "%ld\xC2\xB0" "C\n", rounded);
+}
+
 long read_sysfs_long(const string& path) {
     ifstream file(path);
     if (file.is_open()) {
@@ -296,7 +340,11 @@ int main(int argc, char **argv) {
     if (!amdgpu_dir.empty()) cout << "[INFO] Found AMDGPU: " << amdgpu_dir << endl;
     if (!k10temp_dir.empty()) cout << "[INFO] Found k10temp: " << k10temp_dir << endl;
     if (!nvme_dir.empty()) cout << "[INFO] Found NVMe: " << nvme_dir << endl;
+    if (mkdir(SENSOR_DIR, 0755) != 0 && errno != EEXIST) {
+        fprintf(stderr, "[ERROR] Failed to create %s: %s\n", SENSOR_DIR, strerror(errno));
+    }
     cout << "[INFO] Writing data to /run/apu_telemetry.json" << endl;
+    cout << "[INFO] Writing PMBus-only sensors to " << SENSOR_DIR << endl;
 
     int loop_counter = 0;
     long nvme_temp_raw = -1;
@@ -405,6 +453,17 @@ int main(int argc, char **argv) {
         } else {
             fprintf(stderr, "[ERROR] Failed to open /run/apu_telemetry.tmp for writing: %s\n", strerror(errno));
         }
+
+        write_temp_pair("cpu_vrm_temp", "cpu_vrm_c", cpu.temp, cpu.valid);
+        write_temp_pair("gpu_vrm_temp", "gpu_vrm_c", gpu.temp, gpu.valid);
+        write_sensor("vin", cpu.valid || gpu.valid, "%.2fV\n", cpu.valid ? cpu.vin : gpu.vin);
+        write_sensor("cpu_vout", cpu.valid, "%.2fV\n", cpu.vout);
+        write_sensor("gpu_vout", gpu.valid, "%.2fV\n", gpu.vout);
+        write_sensor("cpu_iout", cpu.valid, "%.1fA\n", cpu.iout);
+        write_sensor("gpu_iout", gpu.valid, "%.1fA\n", gpu.iout);
+        write_sensor("cpu_pout", cpu.valid, "%.1fW\n", cpu.pout);
+        write_sensor("gpu_pout", gpu.valid, "%.1fW\n", gpu.pout);
+        write_sensor("total_power", cpu.valid || gpu.valid, "%.1fW\n", total_power);
 
         loop_counter++;
         usleep(LOOP_INTERVAL_US);
