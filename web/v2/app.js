@@ -3,6 +3,8 @@ const SMOOTHING = 0.08;
 const SMOOTHING_CRISP = 0.2; // for temps/fans — smooth, but without noticeable lag
 let latest = null; // last known-valid frame — same as v1: never show a fake 0
 let frameReady = false; // true exactly once per new telemetry frame (~700ms) — gates the chart history push
+let latestReceivedAt = null;
+let telemetryFetchFailed = false;
 
 // The daemon publishes a frame roughly every 700 ms, so a window in seconds
 // converts to a point count. The buffer always holds the longest window on
@@ -255,6 +257,14 @@ function paintBoard(ppt, cpuPout, gpuPout, fanRpm, totalPower) {
 }
 
 function updateUI() {
+    // If memory.js failed to load, BC250Memory is undeclared; the typeof guard
+    // skips the memory panel rather than throwing here and killing the entire
+    // dashboard. (A top-level `const` is not a property of window, so a
+    // `window.BC250Memory?.` guard would wrongly skip it even when loaded.)
+    if (typeof BC250Memory !== 'undefined') {
+        BC250Memory.render(latest?.memory,
+            latestReceivedAt == null ? null : performance.now() - latestReceivedAt, telemetryFetchFailed);
+    }
     if (!latest) return;
     const hw = latest.hardware || {};
     const sw = latest.software || {};
@@ -295,7 +305,6 @@ function updateUI() {
     const gpuIoutWarning = gpu.valid ? !!gpu.iout_warning : (p.gpuIoutWarning ?? false);
     const gpuIoutFault = gpu.valid ? !!gpu.iout_fault : (p.gpuIoutFault ?? false);
 
-    const totalValid = hw.total_power_valid !== false;
     const total = pick(hw.total_power, cpuPout + gpuPout);
 
     state.prevFrame = {
@@ -353,12 +362,7 @@ function updateUI() {
     // Memory/Fabric — same idea, gated on df_pstate/mem_clock_mhz being present in software.
     const hasMemInfo = typeof sw.df_pstate === 'number' && sw.df_pstate >= 0
         && typeof sw.mem_clock_mhz === 'number' && sw.mem_clock_mhz >= 0;
-    setDisplay('v2-memory-panel', hasMemInfo);
-    // Drives the min/max-height of the mini-charts in CPU/GPU CORE (style.css) —
-    // without the MEMORY panel, the BOARD·COOLING column is shorter, so the charts
-    // shrink to match instead of leaving dead space in THERMALS.
-    const boardGridEl = document.getElementById('v2-board-grid');
-    if (boardGridEl) boardGridEl.classList.toggle('has-memory', hasMemInfo);
+    setDisplay('v2-memory-clock-row', hasMemInfo);
     if (hasMemInfo) {
         const pstate = Math.round(sw.df_pstate);
         setText('v2-mem-state', 'P' + pstate);
@@ -369,9 +373,7 @@ function updateUI() {
     const board = (t14 + t15) / 2;
     const boardVal = smooth('board', board, SMOOTHING_CRISP);
     setText('v2-board-temp', boardVal.toFixed(1));
-    setBar('v2-board-temp-bar', boardVal);
     setStatusClass('v2-board-temp-figure', boardVal, TEMP_THRESH.board);
-    setStatusClass('v2-board-temp-bar', boardVal, TEMP_THRESH.board);
 
     const nvmeVal = smooth('nvme', nvme, SMOOTHING_CRISP);
     setText('v2-nvme-temp', nvmeVal.toFixed(1));
@@ -381,17 +383,14 @@ function updateUI() {
 
     const t15Val = smooth('t15', t15, SMOOTHING_CRISP);
     setText('v2-vrmmos-temp', t15Val.toFixed(1));
-    setBar('v2-vrmmos-temp-bar', t15Val);
     setStatusClass('v2-vrmmos-temp-figure', t15Val, TEMP_THRESH.vrm);
-    setStatusClass('v2-vrmmos-temp-bar', t15Val, TEMP_THRESH.vrm);
+
+    const boardBarVal = (boardVal + t15Val) / 2;
+    setBar('v2-board-temp-bar', boardBarVal);
+    setStatusClass('v2-board-temp-bar', boardBarVal, TEMP_THRESH.board);
 
     setText('v2-rail-vin', cpuVin.toFixed(2));
     setBar('v2-rail-vin-bar', cpuVin);
-    const totalVal = smooth('total', total);
-    setText('v2-power-sum', totalVal.toFixed(1));
-    setBar('v2-power-sum-bar', totalVal);
-    setText('v2-power-sum-lbl', totalValid ? 'VRM Sum (CPU+GPU)' : 'VRM Sum · partial');
-    document.getElementById('v2-power-sum-row')?.classList.toggle('uncertain', !totalValid);
 
     // --- CPU CORE ---
     // Core/CU badges are populated separately by fetchTopology() (see
@@ -445,8 +444,13 @@ async function fetchTelemetry() {
     try {
         const response = await fetch('/api/telemetry');
         const data = await response.json();
-        if (!data.error) { latest = data; frameReady = true; }
+        if (!response.ok || !data || data.error) throw new Error(data?.error || 'Telemetry request failed');
+        latest = data;
+        frameReady = true;
+        latestReceivedAt = performance.now();
+        telemetryFetchFailed = false;
     } catch (error) {
+        telemetryFetchFailed = true;
         console.error('Failed to fetch telemetry:', error);
     }
 }

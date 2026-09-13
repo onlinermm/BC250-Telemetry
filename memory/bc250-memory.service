@@ -1,0 +1,18 @@
+[Unit]
+Description=BC-250 SMU patch and GDDR6 temperature collector
+After=systemd-modules-load.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 -B /opt/bc250-memory/collector.py
+RuntimeDirectory=bc250-memory
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0022
+# A host timeout does not cancel firmware execution. Never restart in a loop.
+Restart=no
+TimeoutStopSec=50
+
+[Install]
+WantedBy=multi-user.target

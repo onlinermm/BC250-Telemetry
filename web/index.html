@@ -135,27 +135,42 @@
                         <div class="gauge-val"><span id="fan-rpm">0</span><span class="unit">RPM</span></div>
                     </div>
                     <div class="core-temps">
-                        <div class="sys-temp-lbl" style="font-size: 1.2rem; color: var(--text-main); font-weight: 800; text-shadow: 0 0 10px rgba(255,255,255,0.2);">CPU_FAN</div>
+                        <div class="sys-temp-lbl fan-label">CPU Fan</div>
+                        <div class="fan-pwm-sub"><span id="fan-pwm">0</span>% PWM</div>
                     </div>
                 </div>
 
                 <div class="vrm-data">
                     <div class="vrm-title">Telemetry</div>
                     <div class="vrm-row">
-                        <div class="vrm-row-main"><span>Fan PWM Signal</span><div class="r-val"><span id="fan-pwm">0</span> %</div></div>
-                        <div class="mini-bar"><div class="mini-bar-fill" id="fan-pwm-bar" data-max="100"></div></div>
-                    </div>
-                    <div class="vrm-row">
-                        <div class="vrm-row-main"><span>NVMe Temp</span><div class="r-val temp-vrm" id="nvme-temp-figure"><span id="nvme-temp">0.0</span> °C</div></div>
+                        <div class="vrm-row-main"><span>NVMe Temp</span><div class="r-val" id="nvme-temp-figure"><span id="nvme-temp">0.0</span><span class="temp-unit">°C</span></div></div>
                         <div class="mini-bar"><div class="mini-bar-fill" id="nvme-temp-bar" data-max="85"></div></div>
                     </div>
                     <div class="vrm-row">
-                        <div class="vrm-row-main"><span>Thermistor 14</span><div class="r-val temp-vrm" id="therm-14-figure"><span id="therm-14">0.0</span> °C</div></div>
-                        <div class="mini-bar"><div class="mini-bar-fill" id="therm-14-bar" data-max="100"></div></div>
+                        <div class="vrm-row-main"><span>Thermistors</span><div class="r-val-pair">
+                            <span class="r-val" id="therm-14-figure" title="Thermistor 14"><span id="therm-14">0.0</span><span class="temp-unit">°C</span></span>
+                            <span class="r-val-sep">/</span>
+                            <span class="r-val" id="therm-15-figure" title="Thermistor 15"><span id="therm-15">0.0</span><span class="temp-unit">°C</span></span>
+                        </div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="therm-14-15-bar" data-max="100"></div></div>
                     </div>
-                    <div class="vrm-row">
-                        <div class="vrm-row-main"><span>Thermistor 15</span><div class="r-val temp-vrm" id="therm-15-figure"><span id="therm-15">0.0</span> °C</div></div>
-                        <div class="mini-bar"><div class="mini-bar-fill" id="therm-15-bar" data-max="100"></div></div>
+                    <div class="vrm-row" id="memory-row" title="GDDR6 memory: waiting for telemetry…">
+                        <div class="vrm-row-main"><span>GDDR6 Memory</span><div class="r-val-pair">
+                            <span class="r-val temp-vrm" id="memory-hotspot-figure"><span class="r-val-tag">MAX</span> <span id="memory-hotspot">—</span><span class="temp-unit">°C</span></span>
+                            <span class="r-val-sep">/</span>
+                            <span class="r-val" id="memory-average-figure"><span class="r-val-tag">AVG</span> <span id="memory-average">—</span><span class="temp-unit">°C</span></span>
+                        </div></div>
+                        <div class="mini-bar"><div class="mini-bar-fill" id="memory-bar" data-max="120"></div></div>
+                    </div>
+                    <div class="mem-chips" id="mem-chips" aria-label="Temperature by memory chip">
+                        <div class="mem-chip"><div class="mem-chip-row"><span class="mem-chip-idx">0</span><span class="r-val" id="mem-chip-figure-0"><span id="mem-chip-val-0">—</span><span class="temp-unit">°C</span></span></div><div class="mini-bar"><div class="mini-bar-fill" id="mem-chip-bar-0" data-max="120"></div></div></div>
+                        <div class="mem-chip"><div class="mem-chip-row"><span class="mem-chip-idx">1</span><span class="r-val" id="mem-chip-figure-1"><span id="mem-chip-val-1">—</span><span class="temp-unit">°C</span></span></div><div class="mini-bar"><div class="mini-bar-fill" id="mem-chip-bar-1" data-max="120"></div></div></div>
+                        <div class="mem-chip"><div class="mem-chip-row"><span class="mem-chip-idx">2</span><span class="r-val" id="mem-chip-figure-2"><span id="mem-chip-val-2">—</span><span class="temp-unit">°C</span></span></div><div class="mini-bar"><div class="mini-bar-fill" id="mem-chip-bar-2" data-max="120"></div></div></div>
+                        <div class="mem-chip"><div class="mem-chip-row"><span class="mem-chip-idx">3</span><span class="r-val" id="mem-chip-figure-3"><span id="mem-chip-val-3">—</span><span class="temp-unit">°C</span></span></div><div class="mini-bar"><div class="mini-bar-fill" id="mem-chip-bar-3" data-max="120"></div></div></div>
+                        <div class="mem-chip"><div class="mem-chip-row"><span class="mem-chip-idx">4</span><span class="r-val" id="mem-chip-figure-4"><span id="mem-chip-val-4">—</span><span class="temp-unit">°C</span></span></div><div class="mini-bar"><div class="mini-bar-fill" id="mem-chip-bar-4" data-max="120"></div></div></div>
+                        <div class="mem-chip"><div class="mem-chip-row"><span class="mem-chip-idx">5</span><span class="r-val" id="mem-chip-figure-5"><span id="mem-chip-val-5">—</span><span class="temp-unit">°C</span></span></div><div class="mini-bar"><div class="mini-bar-fill" id="mem-chip-bar-5" data-max="120"></div></div></div>
+                        <div class="mem-chip"><div class="mem-chip-row"><span class="mem-chip-idx">6</span><span class="r-val" id="mem-chip-figure-6"><span id="mem-chip-val-6">—</span><span class="temp-unit">°C</span></span></div><div class="mini-bar"><div class="mini-bar-fill" id="mem-chip-bar-6" data-max="120"></div></div></div>
+                        <div class="mem-chip"><div class="mem-chip-row"><span class="mem-chip-idx">7</span><span class="r-val" id="mem-chip-figure-7"><span id="mem-chip-val-7">—</span><span class="temp-unit">°C</span></span></div><div class="mini-bar"><div class="mini-bar-fill" id="mem-chip-bar-7" data-max="120"></div></div></div>
                     </div>
                 </div>
             </section>

@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BC-250 HUD · v2</title>
     <link rel="icon" type="image/svg+xml" href="/favicon-pulse.svg">
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="bc250-board.css">
+    <link rel="stylesheet" href="style.css?v=b03230234c17">
+    <link rel="stylesheet" href="bc250-board.css?v=5207f569adac">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -17,7 +17,7 @@
     </div>
 
     <div class="hud-container">
-        <main class="board-grid" id="v2-board-grid">
+        <main class="board-grid has-memory" id="v2-board-grid">
 
             <!-- BOARD · COOLING -->
             <section class="board-card accent-good" style="grid-column:1;grid-row:1">
@@ -68,6 +68,46 @@
                                 <radialGradient id="bc-vrm-orange"><stop offset="0%" stop-color="#fb923c" stop-opacity=".9"></stop><stop offset="100%" stop-color="#fb923c" stop-opacity="0"></stop></radialGradient>
                                 <linearGradient id="bc-pcb" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1f2c48"></stop><stop offset="100%" stop-color="#141f38"></stop></linearGradient>
                                 <linearGradient id="bc-sink" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#55668a"></stop><stop offset="50%" stop-color="#3b4b6c"></stop><stop offset="100%" stop-color="#28344e"></stop></linearGradient>
+                                <radialGradient id="bc-memory-gradient-0" color="#38bdf8">
+                                    <stop offset="0%" stop-color="currentColor" stop-opacity=".85"></stop>
+                                    <stop offset="45%" stop-color="currentColor" stop-opacity=".5"></stop>
+                                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-memory-gradient-1" color="#38bdf8">
+                                    <stop offset="0%" stop-color="currentColor" stop-opacity=".85"></stop>
+                                    <stop offset="45%" stop-color="currentColor" stop-opacity=".5"></stop>
+                                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-memory-gradient-2" color="#38bdf8">
+                                    <stop offset="0%" stop-color="currentColor" stop-opacity=".85"></stop>
+                                    <stop offset="45%" stop-color="currentColor" stop-opacity=".5"></stop>
+                                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-memory-gradient-3" color="#38bdf8">
+                                    <stop offset="0%" stop-color="currentColor" stop-opacity=".85"></stop>
+                                    <stop offset="45%" stop-color="currentColor" stop-opacity=".5"></stop>
+                                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-memory-gradient-4" color="#38bdf8">
+                                    <stop offset="0%" stop-color="currentColor" stop-opacity=".85"></stop>
+                                    <stop offset="45%" stop-color="currentColor" stop-opacity=".5"></stop>
+                                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-memory-gradient-5" color="#38bdf8">
+                                    <stop offset="0%" stop-color="currentColor" stop-opacity=".85"></stop>
+                                    <stop offset="45%" stop-color="currentColor" stop-opacity=".5"></stop>
+                                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-memory-gradient-6" color="#38bdf8">
+                                    <stop offset="0%" stop-color="currentColor" stop-opacity=".85"></stop>
+                                    <stop offset="45%" stop-color="currentColor" stop-opacity=".5"></stop>
+                                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+                                </radialGradient>
+                                <radialGradient id="bc-memory-gradient-7" color="#38bdf8">
+                                    <stop offset="0%" stop-color="currentColor" stop-opacity=".85"></stop>
+                                    <stop offset="45%" stop-color="currentColor" stop-opacity=".5"></stop>
+                                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+                                </radialGradient>
                             </defs>
 
                             <!-- Outlines are the real face loops out of the STEP assembly, not bounding
@@ -311,6 +351,50 @@
                                         <circle r="17.6" fill="#2c343b" fill-opacity=".75" stroke="#5a656f"></circle>
                                     </g>
                                 </g>
+                                <!-- Top/X-ray view; chip mapping supplied by the board owner.
+                                     0:A/U27 1:B/U29 2:C/U31 3:D/U33 4:E/U43 5:F/U41 6:G/U39 7:H/U37. -->
+                                <g id="bc-memory-halos">
+                                    <g id="bc-memory-0" class="bc-memory-chip" data-designator="U27" transform="translate(411.5,257.7) rotate(45)" opacity="0">
+                                        <title id="bc-memory-title-0">Chip 0 · U27: unavailable</title>
+                                        <ellipse id="bc-memory-glow-0" rx="30" ry="35" fill="url(#bc-memory-gradient-0)" opacity="0"></ellipse>
+                                        <rect class="bc-memory-hotspot" x="-14.15" y="-18.2" width="28.3" height="36.4" rx="3" fill="none" stroke="#fb923c" stroke-width="2.2" opacity="0"></rect>
+                                    </g>
+                                    <g id="bc-memory-1" class="bc-memory-chip" data-designator="U29" transform="translate(472.9,297.1) rotate(0)" opacity="0">
+                                        <title id="bc-memory-title-1">Chip 1 · U29: unavailable</title>
+                                        <ellipse id="bc-memory-glow-1" rx="30" ry="35" fill="url(#bc-memory-gradient-1)" opacity="0"></ellipse>
+                                        <rect class="bc-memory-hotspot" x="-14.15" y="-18.2" width="28.3" height="36.4" rx="3" fill="none" stroke="#fb923c" stroke-width="2.2" opacity="0"></rect>
+                                    </g>
+                                    <g id="bc-memory-2" class="bc-memory-chip" data-designator="U31" transform="translate(534.4,297.1) rotate(0)" opacity="0">
+                                        <title id="bc-memory-title-2">Chip 2 · U31: unavailable</title>
+                                        <ellipse id="bc-memory-glow-2" rx="30" ry="35" fill="url(#bc-memory-gradient-2)" opacity="0"></ellipse>
+                                        <rect class="bc-memory-hotspot" x="-14.15" y="-18.2" width="28.3" height="36.4" rx="3" fill="none" stroke="#fb923c" stroke-width="2.2" opacity="0"></rect>
+                                    </g>
+                                    <g id="bc-memory-3" class="bc-memory-chip" data-designator="U33" transform="translate(595.9,257.7) rotate(-45)" opacity="0">
+                                        <title id="bc-memory-title-3">Chip 3 · U33: unavailable</title>
+                                        <ellipse id="bc-memory-glow-3" rx="30" ry="35" fill="url(#bc-memory-gradient-3)" opacity="0"></ellipse>
+                                        <rect class="bc-memory-hotspot" x="-14.15" y="-18.2" width="28.3" height="36.4" rx="3" fill="none" stroke="#fb923c" stroke-width="2.2" opacity="0"></rect>
+                                    </g>
+                                    <g id="bc-memory-4" class="bc-memory-chip" data-designator="U43" transform="translate(595.9,102.7) rotate(45)" opacity="0">
+                                        <title id="bc-memory-title-4">Chip 4 · U43: unavailable</title>
+                                        <ellipse id="bc-memory-glow-4" rx="30" ry="35" fill="url(#bc-memory-gradient-4)" opacity="0"></ellipse>
+                                        <rect class="bc-memory-hotspot" x="-14.15" y="-18.2" width="28.3" height="36.4" rx="3" fill="none" stroke="#fb923c" stroke-width="2.2" opacity="0"></rect>
+                                    </g>
+                                    <g id="bc-memory-5" class="bc-memory-chip" data-designator="U41" transform="translate(534.4,63.3) rotate(0)" opacity="0">
+                                        <title id="bc-memory-title-5">Chip 5 · U41: unavailable</title>
+                                        <ellipse id="bc-memory-glow-5" rx="30" ry="35" fill="url(#bc-memory-gradient-5)" opacity="0"></ellipse>
+                                        <rect class="bc-memory-hotspot" x="-14.15" y="-18.2" width="28.3" height="36.4" rx="3" fill="none" stroke="#fb923c" stroke-width="2.2" opacity="0"></rect>
+                                    </g>
+                                    <g id="bc-memory-6" class="bc-memory-chip" data-designator="U39" transform="translate(472.9,63.3) rotate(0)" opacity="0">
+                                        <title id="bc-memory-title-6">Chip 6 · U39: unavailable</title>
+                                        <ellipse id="bc-memory-glow-6" rx="30" ry="35" fill="url(#bc-memory-gradient-6)" opacity="0"></ellipse>
+                                        <rect class="bc-memory-hotspot" x="-14.15" y="-18.2" width="28.3" height="36.4" rx="3" fill="none" stroke="#fb923c" stroke-width="2.2" opacity="0"></rect>
+                                    </g>
+                                    <g id="bc-memory-7" class="bc-memory-chip" data-designator="U37" transform="translate(411.5,102.7) rotate(-45)" opacity="0">
+                                        <title id="bc-memory-title-7">Chip 7 · U37: unavailable</title>
+                                        <ellipse id="bc-memory-glow-7" rx="30" ry="35" fill="url(#bc-memory-gradient-7)" opacity="0"></ellipse>
+                                        <rect class="bc-memory-hotspot" x="-14.15" y="-18.2" width="28.3" height="36.4" rx="3" fill="none" stroke="#fb923c" stroke-width="2.2" opacity="0"></rect>
+                                    </g>
+                                </g>
                                 <g id="bc-backplate-fan" transform="translate(720,110)" style="display:none">
                                     <rect x="-30" y="-30" width="60" height="60" rx="6" fill="#141c2c" fill-opacity=".4" stroke="#68737d"></rect>
                                     <circle r="27" fill="#0c1115" fill-opacity=".2" stroke="#59646e"></circle>
@@ -329,10 +413,23 @@
                         </svg>
                 </div>
 
-                <!-- Memory/Fabric: same idea, only shown when software.df_pstate / mem_clock_mhz are present. -->
-                <div class="board-panel" id="v2-memory-panel" style="display:none">
-                    <div class="panel-title">MEMORY</div>
-                    <div class="board-row">
+                <div class="board-panel" id="v2-memory-panel" data-memory-status="starting">
+                    <div class="panel-title">GDDR6 · MEMORY<span class="oc-dot memory-status" id="v2-memory-status" role="status" title="Waiting for telemetry…"></span></div>
+                    <div class="memory-summary">
+                        <div><span class="memory-label">HOTSPOT</span><div class="memory-value memory-hotspot"><span id="v2-memory-hotspot">—</span><span class="memory-unit">°C</span></div></div>
+                        <div><span class="memory-label">AVERAGE</span><div class="memory-value"><span id="v2-memory-average">—</span><span class="memory-unit">°C</span></div></div>
+                    </div>
+                    <div class="memory-chips" aria-label="Temperature by memory chip">
+                        <div class="memory-chip" id="v2-memory-cell-0"><div class="memory-chip-reading"><span class="memory-label" title="Chip 0" aria-label="Chip 0"><svg class="memory-chip-icon" id="v2-memory-icon-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" fill-opacity=".24"></rect><path d="M6 1.5V4m4-2.5V4M6 12v2.5m4-2.5v2.5M1.5 6H4m-2.5 4H4m8-4h2.5M12 10h2.5"></path></svg><span>0</span></span><div><span id="v2-memory-chip-0">—</span><span class="memory-unit">°C</span></div></div><div class="mini-bar" aria-hidden="true"><div class="mini-bar-fill" id="v2-memory-bar-0"></div></div></div>
+                        <div class="memory-chip" id="v2-memory-cell-1"><div class="memory-chip-reading"><span class="memory-label" title="Chip 1" aria-label="Chip 1"><svg class="memory-chip-icon" id="v2-memory-icon-1" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" fill-opacity=".24"></rect><path d="M6 1.5V4m4-2.5V4M6 12v2.5m4-2.5v2.5M1.5 6H4m-2.5 4H4m8-4h2.5M12 10h2.5"></path></svg><span>1</span></span><div><span id="v2-memory-chip-1">—</span><span class="memory-unit">°C</span></div></div><div class="mini-bar" aria-hidden="true"><div class="mini-bar-fill" id="v2-memory-bar-1"></div></div></div>
+                        <div class="memory-chip" id="v2-memory-cell-2"><div class="memory-chip-reading"><span class="memory-label" title="Chip 2" aria-label="Chip 2"><svg class="memory-chip-icon" id="v2-memory-icon-2" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" fill-opacity=".24"></rect><path d="M6 1.5V4m4-2.5V4M6 12v2.5m4-2.5v2.5M1.5 6H4m-2.5 4H4m8-4h2.5M12 10h2.5"></path></svg><span>2</span></span><div><span id="v2-memory-chip-2">—</span><span class="memory-unit">°C</span></div></div><div class="mini-bar" aria-hidden="true"><div class="mini-bar-fill" id="v2-memory-bar-2"></div></div></div>
+                        <div class="memory-chip" id="v2-memory-cell-3"><div class="memory-chip-reading"><span class="memory-label" title="Chip 3" aria-label="Chip 3"><svg class="memory-chip-icon" id="v2-memory-icon-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" fill-opacity=".24"></rect><path d="M6 1.5V4m4-2.5V4M6 12v2.5m4-2.5v2.5M1.5 6H4m-2.5 4H4m8-4h2.5M12 10h2.5"></path></svg><span>3</span></span><div><span id="v2-memory-chip-3">—</span><span class="memory-unit">°C</span></div></div><div class="mini-bar" aria-hidden="true"><div class="mini-bar-fill" id="v2-memory-bar-3"></div></div></div>
+                        <div class="memory-chip" id="v2-memory-cell-4"><div class="memory-chip-reading"><span class="memory-label" title="Chip 4" aria-label="Chip 4"><svg class="memory-chip-icon" id="v2-memory-icon-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" fill-opacity=".24"></rect><path d="M6 1.5V4m4-2.5V4M6 12v2.5m4-2.5v2.5M1.5 6H4m-2.5 4H4m8-4h2.5M12 10h2.5"></path></svg><span>4</span></span><div><span id="v2-memory-chip-4">—</span><span class="memory-unit">°C</span></div></div><div class="mini-bar" aria-hidden="true"><div class="mini-bar-fill" id="v2-memory-bar-4"></div></div></div>
+                        <div class="memory-chip" id="v2-memory-cell-5"><div class="memory-chip-reading"><span class="memory-label" title="Chip 5" aria-label="Chip 5"><svg class="memory-chip-icon" id="v2-memory-icon-5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" fill-opacity=".24"></rect><path d="M6 1.5V4m4-2.5V4M6 12v2.5m4-2.5v2.5M1.5 6H4m-2.5 4H4m8-4h2.5M12 10h2.5"></path></svg><span>5</span></span><div><span id="v2-memory-chip-5">—</span><span class="memory-unit">°C</span></div></div><div class="mini-bar" aria-hidden="true"><div class="mini-bar-fill" id="v2-memory-bar-5"></div></div></div>
+                        <div class="memory-chip" id="v2-memory-cell-6"><div class="memory-chip-reading"><span class="memory-label" title="Chip 6" aria-label="Chip 6"><svg class="memory-chip-icon" id="v2-memory-icon-6" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" fill-opacity=".24"></rect><path d="M6 1.5V4m4-2.5V4M6 12v2.5m4-2.5v2.5M1.5 6H4m-2.5 4H4m8-4h2.5M12 10h2.5"></path></svg><span>6</span></span><div><span id="v2-memory-chip-6">—</span><span class="memory-unit">°C</span></div></div><div class="mini-bar" aria-hidden="true"><div class="mini-bar-fill" id="v2-memory-bar-6"></div></div></div>
+                        <div class="memory-chip" id="v2-memory-cell-7"><div class="memory-chip-reading"><span class="memory-label" title="Chip 7" aria-label="Chip 7"><svg class="memory-chip-icon" id="v2-memory-icon-7" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" fill-opacity=".24"></rect><path d="M6 1.5V4m4-2.5V4M6 12v2.5m4-2.5v2.5M1.5 6H4m-2.5 4H4m8-4h2.5M12 10h2.5"></path></svg><span>7</span></span><div><span id="v2-memory-chip-7">—</span><span class="memory-unit">°C</span></div></div><div class="mini-bar" aria-hidden="true"><div class="mini-bar-fill" id="v2-memory-bar-7"></div></div></div>
+                    </div>
+                    <div class="board-row memory-clock-row" id="v2-memory-clock-row" style="display:none">
                         <div class="board-row-main">
                             <span>DF P-State · GDDR6/Fabric</span>
                             <span class="r-val"><span id="v2-mem-state">P0</span><span class="accent-gpu-text"><span id="v2-mem-clock">0</span> MHz</span></span>
@@ -344,24 +441,23 @@
                 <div class="board-panel">
                     <div class="panel-title">THERMALS · POWER</div>
                     <div class="board-row">
-                        <div class="board-row-main"><span>Board Temp</span><span class="r-val" id="v2-board-temp-figure"><span id="v2-board-temp">0.0</span> °C</span></div>
-                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-board-temp-bar" data-max="100"></div></div>
+                        <div class="board-row-main">
+                            <span>Board Temp</span>
+                            <div class="board-temp-values">
+                                <span class="r-val" id="v2-board-temp-figure" title="Board temperature (average of T14 and T15)" aria-label="Board temperature"><span id="v2-board-temp">0.0</span> °C</span>
+                                <span class="board-temp-separator" aria-hidden="true">/</span>
+                                <span class="r-val" id="v2-vrmmos-temp-figure" title="VRM MOS temperature (T15)" aria-label="VRM MOS temperature"><span id="v2-vrmmos-temp">0.0</span> °C</span>
+                            </div>
+                        </div>
+                        <div class="mini-bar" title="Average of the two displayed temperatures"><div class="mini-bar-fill" id="v2-board-temp-bar" data-max="100"></div></div>
                     </div>
                     <div class="board-row">
                         <div class="board-row-main"><span>NVMe Temp</span><span class="r-val" id="v2-nvme-temp-figure"><span id="v2-nvme-temp">0.0</span> °C</span></div>
                         <div class="mini-bar"><div class="mini-bar-fill" id="v2-nvme-temp-bar" data-max="85"></div></div>
                     </div>
                     <div class="board-row">
-                        <div class="board-row-main"><span>VRM MOS</span><span class="r-val" id="v2-vrmmos-temp-figure"><span id="v2-vrmmos-temp">0.0</span> °C</span></div>
-                        <div class="mini-bar"><div class="mini-bar-fill" id="v2-vrmmos-temp-bar" data-max="100"></div></div>
-                    </div>
-                    <div class="board-row">
                         <div class="board-row-main"><span>Rail Voltage</span><span class="r-val"><span id="v2-rail-vin">0.00</span> V</span></div>
                         <div class="mini-bar"><div class="mini-bar-fill" id="v2-rail-vin-bar" data-max="13"></div></div>
-                    </div>
-                    <div class="board-row" id="v2-power-sum-row">
-                        <div class="board-row-main"><span id="v2-power-sum-lbl">VRM Sum (CPU+GPU)</span><span class="r-val accent-amber-text" id="v2-power-sum-box"><span id="v2-power-sum">0.0</span> W</span></div>
-                        <div class="mini-bar"><div class="mini-bar-fill accent-amber-bg" id="v2-power-sum-bar" data-max="190"></div></div>
                     </div>
                 </div>
             </section>
@@ -507,6 +603,7 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="memory.js?v=f3e849eb20a6"></script>
+    <script src="app.js?v=58b9b084bbcd"></script>
 </body>
 </html>

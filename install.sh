@@ -24,7 +24,20 @@ echo -e "${BLUE}=== Installing BC-250 Telemetry ===${NC}"
 echo -e "Hey, this script will set up monitoring for your board."
 echo -e "We'll be using 'sudo' for system files, so the system might ask for your password.\n"
 
-echo -e "${YELLOW}[STEP 1/6]${NC} Setting up the Nuvoton sensor module (fans)..."
+echo -e "${YELLOW}[STEP 1/7]${NC} Choosing memory temperature monitoring..."
+MEMORY_EXISTING=0
+if systemctl is-enabled --quiet bc250-memory.service 2>/dev/null; then
+    MEMORY_EXISTING=1
+fi
+choose_memory_monitoring "$MEMORY_EXISTING"
+if [ "$MEMORY_ENABLED" = 1 ]; then
+    echo "  -> Memory monitoring enabled; checking board and payload compatibility"
+    sudo python3 -B "$SCRIPT_DIR/memory/collector.py" --check
+else
+    echo "  -> Memory monitoring disabled"
+fi
+
+echo -e "${YELLOW}[STEP 2/7]${NC} Setting up the Nuvoton sensor module (fans)..."
 
 # Only touch the sensor driver if the user has none loaded at all — an
 # already-active nct6683/nct6687 (from a previous run, or the distro itself)
@@ -53,7 +66,7 @@ fi
 # back to a prebuilt ./apu_telemetry, if there is one next to it — when the
 # toolchain is missing or the build itself fails; the fallback is always
 # announced, never silent.
-echo -e "${YELLOW}[STEP 2/6]${NC} Preparing the apu_telemetry binary..."
+echo -e "${YELLOW}[STEP 3/7]${NC} Preparing the apu_telemetry binary..."
 BUILT=0
 if [ -f ./bc250_telemetry.cpp ]; then
     if ! command -v g++ >/dev/null 2>&1; then
@@ -62,12 +75,12 @@ if [ -f ./bc250_telemetry.cpp ]; then
         echo -e "  -> Found bc250_telemetry.cpp, compiling..."
         echo -e "  -> Trying a static build (-O2 -static), so the binary doesn't depend on system libraries"
         BUILD_LOG=$(mktemp)
-        if g++ -O2 -static -o ./apu_telemetry bc250_telemetry.cpp 2>"$BUILD_LOG"; then
+        if g++ -std=c++17 -Wall -Wextra -O2 -static -o ./apu_telemetry bc250_telemetry.cpp 2>"$BUILD_LOG"; then
             echo -e "${GREEN}✓ Compiled statically!${NC}"
             BUILT=1
         else
             echo -e "${YELLOW}⚠ Static build failed (no static libc/libstdc++?), trying dynamic...${NC}"
-            if g++ -O2 -o ./apu_telemetry bc250_telemetry.cpp 2>"$BUILD_LOG"; then
+            if g++ -std=c++17 -Wall -Wextra -O2 -o ./apu_telemetry bc250_telemetry.cpp 2>"$BUILD_LOG"; then
                 echo -e "${GREEN}✓ Compiled (dynamically)!${NC}"
                 BUILT=1
             else
@@ -102,7 +115,12 @@ else
     exit 1
 fi
 
-echo -e "${YELLOW}[STEP 3/6]${NC} Installing the daemon into the system..."
+if [ "$MEMORY_ENABLED" = 1 ] && ! supports_memory_snapshot ./apu_telemetry; then
+    echo "The selected binary lacks memory snapshot support. Build the current sources or use the updated release."
+    exit 1
+fi
+
+echo -e "${YELLOW}[STEP 4/7]${NC} Installing the daemon into the system..."
 DISTRO_ID=""
 if [ -f /etc/os-release ]; then
     DISTRO_ID=$(. /etc/os-release 2>/dev/null && echo "$ID") || DISTRO_ID=""
@@ -140,7 +158,7 @@ echo -e "  -> Copying the apu-telemetry.service unit config"
 sed "s|TELEMETRY_BIN_PATH|$BIN_PATH|g" apu-telemetry.service | sudo tee /etc/systemd/system/apu-telemetry.service > /dev/null
 echo -e "${GREEN}✓ Done!${NC}\n"
 
-echo -e "${YELLOW}[STEP 4/6]${NC} Choosing the default dashboard..."
+echo -e "${YELLOW}[STEP 5/7]${NC} Choosing the default dashboard..."
 # Priority order: --dashboard=... > env BC250_DEFAULT_DASHBOARD > whatever was
 # already set in a previously installed unit (so that running `./install.sh`
 # again for an update doesn't silently reset the user's choice back to v1) >
@@ -187,7 +205,7 @@ if [ "$CHOSEN_DASHBOARD" != "v1" ] && [ "$CHOSEN_DASHBOARD" != "v2" ]; then
 fi
 echo -e "${GREEN}✓ The default on \"/\" will be: $CHOSEN_DASHBOARD${NC}\n"
 
-echo -e "${YELLOW}[STEP 5/6]${NC} Installing the web server..."
+echo -e "${YELLOW}[STEP 6/7]${NC} Installing the web server..."
 echo -e "  -> Copying and configuring the bc250-web.service unit"
 CURRENT_USER="${SUDO_USER:-$(whoami)}"
 if [ -z "${SUDO_USER:-}" ]; then
@@ -201,7 +219,32 @@ echo -e "${GREEN}✓ Done!${NC}\n"
 # enable by itself doesn't restart an already-active service (it only enables
 # autostart) — so for a freshly built binary/unit we explicitly restart it,
 # otherwise the old service would keep running with the old code in memory.
-echo -e "${YELLOW}[STEP 6/6]${NC} Starting the services..."
+echo -e "${YELLOW}[STEP 7/7]${NC} Starting the services..."
+if [ "$MEMORY_ENABLED" = "1" ]; then
+    echo "  -> Installing the separate SMU patch and memory collector service"
+    # Stop before replacing Python modules. The per-boot operation guard lives
+    # in /run and is deliberately preserved across updates and reinstalls.
+    if [ -f /etc/systemd/system/bc250-memory.service ]; then
+        sudo systemctl stop bc250-memory.service
+    fi
+    sudo install -d -m 0755 /opt/bc250-memory/bc250_smu /opt/bc250-memory/payload
+    sudo install -m 0644 memory/*.py memory/LICENSE.upstream memory/UPSTREAM.md memory/README.md /opt/bc250-memory/
+    sudo install -m 0644 memory/bc250_smu/*.py /opt/bc250-memory/bc250_smu/
+    sudo install -m 0644 memory/payload/SMUPayload.bin /opt/bc250-memory/payload/
+    sudo install -m 0644 memory/bc250-memory.service /etc/systemd/system/bc250-memory.service
+    if command -v restorecon >/dev/null 2>&1; then
+        sudo restorecon -R /opt/bc250-memory || true
+    fi
+elif [ -f /etc/systemd/system/bc250-memory.service ]; then
+    echo "  -> Disabling and removing the previously installed memory collector"
+    sudo systemctl disable --now bc250-memory.service
+    sudo rm -f /etc/systemd/system/bc250-memory.service
+    # Opting out removes the on-disk SMU-patching code, not just the unit.
+    sudo rm -rf /opt/bc250-memory
+    sudo rm -f /run/bc250-memory/telemetry
+    # The per-boot operation guard is deliberately preserved (reboot clears
+    # it) so a same-boot reinstall cannot retry an interrupted SMU operation.
+fi
 echo -e "  -> Reloading systemd, enabling autostart, and (re)starting the services"
 sudo systemctl daemon-reload
 if ! sudo systemctl enable apu-telemetry.service bc250-web.service; then
@@ -209,6 +252,10 @@ if ! sudo systemctl enable apu-telemetry.service bc250-web.service; then
 fi
 sudo systemctl restart apu-telemetry.service
 sudo systemctl restart bc250-web.service
+if [ "$MEMORY_ENABLED" = "1" ]; then
+    sudo systemctl enable bc250-memory.service
+    sudo systemctl restart bc250-memory.service
+fi
 
 # `systemctl restart` only confirms systemd accepted the request — it returns
 # success even if the process crashes right after (verified: a unit whose
@@ -226,6 +273,15 @@ if ! systemctl is-active --quiet bc250-web.service; then
     systemctl status bc250-web.service --no-pager -l | tail -n 8
     SERVICES_OK=0
 fi
+if [ "$MEMORY_ENABLED" = "1" ] && ! systemctl is-active --quiet bc250-memory.service; then
+    echo -e "${RED}✗ bc250-memory.service did not stay running; check journalctl -u bc250-memory.${NC}"
+    sudo journalctl -u bc250-memory.service -b -n 30 --no-pager || true
+    SERVICES_OK=0
+fi
+if [ "$MEMORY_ENABLED" = "1" ] && systemctl is-active --quiet bc250-memory.service; then
+    echo "Memory service started; patching/first sample may still be in progress."
+    echo "Check /api/telemetry -> memory.status and journalctl -u bc250-memory."
+fi
 
 if [ "$SERVICES_OK" = "1" ]; then
     echo -e "${GREEN}✓ Services started!${NC}\n"
@@ -239,7 +295,8 @@ else
     echo -e "${RED}=== Installation finished, but with problems ===${NC}"
 fi
 echo -e "Your monitoring is now running. Data lives in /run/apu_telemetry.json."
-echo -e "PMBus-only sensors (CoolerControl/MangoHud): /run/bc250/ (see mangohud/MangoHud-bc250.conf)"
+echo -e "Memory is included in the same JSON file; /api/telemetry serves that snapshot."
+echo -e "PMBus/VRM (+ GDDR6, if enabled) sensors for CoolerControl/MangoHud: /run/bc250/ (see mangohud/MangoHud-bc250.conf)"
 if [ "$CHOSEN_DASHBOARD" = "v2" ]; then
     echo -e "Web UI (default v2 — animated board diagram): http://localhost:8090"
     echo -e "The classic HUD (v1) is still available at http://localhost:8090/index.html"

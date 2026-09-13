@@ -17,6 +17,13 @@
 #include <string>
 #include <sys/stat.h>
 #include <cstdarg>
+#include "memory_telemetry.h"
+
+// Installer metadata, deliberately emitted even under -O2. Ordinary string
+// literals (such as the snapshot path) may be split into immediate stores.
+// Inspecting this marker never executes an older daemon or touches hardware.
+static const char BC250_FEATURES[] __attribute__((used)) =
+    "BC250_TELEMETRY_FEATURES=memory_snapshot_v1";
 
 #define PMBUS_ADDR 0x60
 #define PMBUS_PAGE       0x00
@@ -279,6 +286,24 @@ void write_temp_pair(const char *cc_name, const char *mh_name, float temp_c, boo
     write_sensor(mh_name, true, "%ld\xC2\xB0" "C\n", rounded);
 }
 
+// Pulls one numeric field out of the JSON string memory_telemetry::read_json()
+// just built for us this cycle. Not a general JSON parser: the input is our
+// own just-generated, fixed-shape string, not the untrusted collector
+// snapshot, so a plain key search is safe. Returns NAN for "null" or a
+// missing key (i.e. memory data isn't currently valid).
+double json_number_field(const std::string &json, const char *key) {
+    const std::string needle = std::string("\"") + key + "\":";
+    size_t pos = json.find(needle);
+    if (pos == std::string::npos) return NAN;
+    pos += needle.size();
+    if (json.compare(pos, 4, "null") == 0) return NAN;
+    try {
+        return std::stod(json.substr(pos));
+    } catch (...) {
+        return NAN;
+    }
+}
+
 long read_sysfs_long(const string& path) {
     ifstream file(path);
     if (file.is_open()) {
@@ -446,10 +471,22 @@ int main(int argc, char **argv) {
             file << "  \"cooling\": {\n";
             file << "    \"fan_rpm\": " << nct_fan << ",\n";
             file << "    \"fan_pwm_pct\": " << fixed << setprecision(0) << pwm_percent << "\n";
-            file << "  }\n";
+            file << "  },\n";
+            const std::string memory_json = memory_telemetry::read_json();
+            file << "  \"memory\": " << memory_json << "\n";
             file << "}\n";
             file.close();
             rename("/run/apu_telemetry.tmp", "/run/apu_telemetry.json");
+
+            // GDDR6 for MangoHud (optional memory-temp service): just the two
+            // aggregate figures the web dashboards also lead with, not all
+            // eight chips — an in-game overlay has no room for a breakdown.
+            const double mem_hotspot = json_number_field(memory_json, "hotspot_c");
+            const double mem_average = json_number_field(memory_json, "average_c");
+            write_temp_pair("memory_hotspot_temp", "memory_hotspot_c",
+                             static_cast<float>(mem_hotspot), std::isfinite(mem_hotspot));
+            write_temp_pair("memory_avg_temp", "memory_avg_c",
+                             static_cast<float>(mem_average), std::isfinite(mem_average));
         } else {
             fprintf(stderr, "[ERROR] Failed to open /run/apu_telemetry.tmp for writing: %s\n", strerror(errno));
         }
