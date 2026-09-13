@@ -155,6 +155,43 @@ body {
 /* MEMORY is a compact panel and shouldn't stretch: in BOARD·COOLING it comes
    before THERMALS, and THERMALS (the last .board-panel) is the one that should keep flex:1. */
 #v2-memory-panel { flex: 0 0 auto; }
+/* MEMORY reuses the .oc-dot indicator next to its title; the muted base state
+   comes from .oc-dot, and the panel's data-memory-status tints it. The state
+   name stays available through the dot's tooltip/accessible name. */
+[data-memory-status="ok"] .memory-status { background: var(--status-good); opacity: 1; box-shadow: 0 0 6px rgba(52, 211, 153, .7); }
+[data-memory-status="error"] .memory-status,
+[data-memory-status="invalid_data"] .memory-status,
+[data-memory-status="invalid_reading"] .memory-status,
+[data-memory-status="stale"] .memory-status { background: var(--status-warning); opacity: 1; box-shadow: 0 0 6px rgba(251, 191, 36, .6); }
+[data-memory-status="saturated"] .memory-status { background: var(--status-critical); opacity: 1; box-shadow: 0 0 6px rgba(251, 113, 133, .7); }
+.memory-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 4px 14px 0; }
+/* AVERAGE sits at the right edge, mirroring .board-hero-item.align-end at the
+   top of the card, so the two figures bracket the panel instead of clustering. */
+.memory-summary > * { display: flex; flex-direction: column; min-width: 0; }
+.memory-summary > :last-child { align-items: flex-end; text-align: right; }
+.memory-label { display: block; color: var(--text-muted); font-size: 9px; letter-spacing: 1px; }
+.memory-value { display: flex; align-items: baseline; gap: 4px; font-size: 26px; font-weight: 800; margin-top: 3px; }
+.memory-unit { font-size: 11px; color: var(--text-muted); margin-left: 2px; font-weight: 400; }
+[data-memory-status="ok"] .memory-hotspot { color: var(--accent-gpu); }
+[data-memory-status="saturated"] .memory-hotspot { color: var(--status-critical); }
+.memory-chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 8px; margin: 8px 12px 10px; }
+.memory-chip { min-width: 0; padding: 5px 6px; border: 1px solid rgba(148, 163, 184, .12); border-radius: 4px; background: rgba(148, 163, 184, .04); line-height: 18px; }
+.memory-chip-reading { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
+.memory-chip .memory-label { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; font-size: 10px; letter-spacing: 0; }
+.memory-chip-icon { width: 14px; height: 14px; flex: none; color: var(--text-muted); }
+.memory-chip-icon rect { fill-opacity: .08; }
+.memory-chip-reading > div { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.memory-chip .memory-unit { font-size: 9px; }
+.memory-chip .mini-bar { margin-top: 4px; }
+.memory-chip.is-hottest .memory-chip-reading > div { color: var(--accent-gpu); }
+.memory-chip.is-saturated .memory-chip-reading > div { color: var(--status-critical); }
+@media (max-width: 400px) {
+    .memory-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .memory-chip .mini-bar-fill { transition: none; }
+}
+.memory-clock-row { border-top: 1px solid var(--glass-border); }
 /* OVERCLOCK panels are compact too — same reasoning as MEMORY above. */
 #v2-cpu-oc-panel, #v2-gpu-oc-panel { flex: 0 0 auto; }
 
@@ -201,6 +238,8 @@ body {
     font-size: 15px; font-weight: 700; color: var(--text-main);
     display: flex; align-items: baseline; gap: 4px;
 }
+.board-temp-values { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.board-temp-separator { color: var(--text-muted); }
 .accent-cpu-text { color: var(--accent) !important; }
 .accent-gpu-text { color: var(--accent-gpu) !important; }
 .accent-amber-text { color: var(--accent-amber) !important; }
@@ -344,8 +383,15 @@ body {
 
 @media (max-width: 640px) {
     .hud-container { padding: 14px; }
+    .board-row-main { font-size: 12.5px; }
+}
+
+/* The big-number hero values (SMU PPT/FAN, CPU/GPU die temp + clock) stay
+   side-by-side well into phone widths — two columns read fine down to real
+   device widths (~360-430px); only stack below that, instead of stacking
+   already at 640px where a card still has plenty of room. */
+@media (max-width: 360px) {
     .board-hero, .board-hero.has-backfan { grid-template-columns: 1fr; }
     .board-hero-item.align-end { align-items: flex-start; }
     .board-hero-item .val { font-size: 30px; }
-    .board-row-main { font-size: 12.5px; }
 }

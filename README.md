@@ -22,6 +22,17 @@ small bundled web server (`web/server.py`) on port 8090 with two dashboard
 variants — `/` (classic HUD) and `/v2/` (animated board diagram), both
 always reachable regardless of which one is the default.
 
+Optional GDDR6 temperatures are collected by a separate service that patches
+SMU at startup. The installer asks whether to enable it on a supported BC-250
+P3.0 board; `--memory-temp` / `--no-memory-temp` select it without a prompt.
+The daemon includes `memory` in `/run/apu_telemetry.json`, and the API serves
+that same snapshot. The v2 dashboard shows chip temperatures, average and
+hotspot with freshness/error states; the classic dashboard is unchanged. See [memory service](memory/README.md)
+for the JSON contract, compatibility checks and firmware limitations.
+The SMU access and payload are adapted from
+[pan-Rijovich/bc250-memory-temperature](https://github.com/pan-Rijovich/bc250-memory-temperature)
+(MIT); see [memory/UPSTREAM.md](memory/UPSTREAM.md) and [memory/LICENSE.upstream](memory/LICENSE.upstream).
+
 The web layer adds a third data source on top of that, at a much slower
 cadence — CPU core / GPU Compute Unit counts, and overclock config/service
 state — since none of it changes at 700 ms speed. See
@@ -42,6 +53,13 @@ writes them as Linux sysfs integers (millidegrees Celsius) for CoolerControl
 |---|---|---|
 | CPU VRM | `/run/bc250/cpu_vrm_temp` | `45000` (= 45 °C) |
 | GPU VRM | `/run/bc250/gpu_vrm_temp` | `48000` (= 48 °C) |
+| GDDR6 hotspot (optional) | `/run/bc250/memory_hotspot_temp` | `54000` (= 54 °C) |
+| GDDR6 average (optional) | `/run/bc250/memory_avg_temp` | `48000` (= 48 °C) |
+
+The two GDDR6 sensors exist only when the memory-temp service (`--memory-temp`,
+see [memory service](memory/README.md)) is installed and running — the files
+are never created otherwise, so a File sensor pointed at a not-installed path
+just shows no reading rather than 0 °C.
 
 Die temps (k10temp / amdgpu), NCT, NVMe, and fans are already in hwmon —
 add those from CoolerControl's normal device list, not as file sensors.
@@ -53,8 +71,9 @@ good value in place so a fan curve does not drop to 0 °C.
 
 ## MangoHud
 
-Only **PMBus / VRM** metrics go to `/run/bc250` — everything else is already
-in hwmon or MangoHud's built-in lines (`cpu_temp`, `gpu_temp`, `cpu_mhz`,
+**PMBus / VRM** metrics, plus GDDR6 memory when that optional collector is
+installed, go to `/run/bc250` — everything else is already in hwmon or
+MangoHud's built-in lines (`cpu_temp`, `gpu_temp`, `cpu_mhz`,
 `gpu_core_clock`, `gpu_power`, etc.). Human-readable strings for the overlay
 (`custom_text` + `exec`, needs `legacy_layout=0`):
 
@@ -70,8 +89,17 @@ in hwmon or MangoHud's built-in lines (`cpu_temp`, `gpu_temp`, `cpu_mhz`,
 | CPU POUT | `/run/bc250/cpu_pout` | `2.2W` |
 | GPU POUT | `/run/bc250/gpu_pout` | `7.8W` |
 | VRM total | `/run/bc250/total_power` | `10.0W` |
+| GDDR6 hotspot (optional) | `/run/bc250/memory_hotspot_c` | `54°C` |
+| GDDR6 average (optional) | `/run/bc250/memory_avg_c` | `48°C` |
 
-A drop-in fragment lives in [`mangohud/MangoHud-bc250.conf`](mangohud/MangoHud-bc250.conf). It sets `font_size_secondary=24` because MangoHud draws `custom_text`/`exec` in the secondary font (default 0.55× `font_size`).
+The two GDDR6 rows only exist when the memory-temp service (`--memory-temp`,
+see [memory service](memory/README.md)) is installed and running — otherwise
+those files are never created, and `exec=cat` on a missing path shows an
+error in the overlay instead of a value. Only the hotspot and average are
+exposed; an in-game overlay has no room for a per-chip breakdown the way the
+web dashboards show one.
+
+A drop-in fragment lives in [`mangohud/MangoHud-bc250.conf`](mangohud/MangoHud-bc250.conf), with a comment above its GDDR6 lines noting the same caveat. It sets `font_size_secondary=24` because MangoHud draws `custom_text`/`exec` in the secondary font (default 0.55× `font_size`).
 
 ## Screenshots
 
@@ -91,7 +119,7 @@ sudo ./install.sh
 
 `install.sh` compiles the daemon (or falls back to the prebuilt
 `apu_telemetry` binary next to it), sets up the `nct6683` fan-controller
-module, installs both systemd units, and asks which dashboard to serve by
+module, installs the systemd units, asks about memory monitoring and which dashboard to serve by
 default at `/` — classic (`v1`) or the animated diagram (`v2`); the other
 stays reachable either way. To skip the prompt (e.g. for a scripted
 install):
@@ -179,10 +207,26 @@ BC250_I2C_BUS=4 ./apu_telemetry
   "cooling": {
     "fan_rpm": 945,
     "fan_pwm_pct": 28
+  },
+  "memory": {
+    "valid": true,
+    "status": "ok",
+    "error": null,
+    "age_ms": 120,
+    "chips_c": [36, 34, 44, 36, 36, 42, 42, 38],
+    "average_c": 38.5,
+    "hotspot_c": 44,
+    "hotspot_chip": 2,
+    "saturated": false,
+    "saturated_chips": [],
+    "raw": [9766, 9509, 10794, 9766, 9766, 10537, 10537, 10023]
   }
 }
 ```
 
+- The `memory` object is always present. When the collector is not installed or
+  its data is unavailable/stale, `valid` is `false`, `chips_c` is eight nulls and
+  the aggregates are null. See [memory service](memory/README.md) for the full contract.
 - `cpu_freq_mhz` is the average across all CPU cores, not one arbitrary core.
 - `total_power_valid` is `false` when the CPU or GPU VRM reading is currently
   invalid — `total_power` then reflects only the working side, not a real zero.

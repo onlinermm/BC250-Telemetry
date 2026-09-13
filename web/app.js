@@ -35,6 +35,7 @@ const TEMP_THRESH = {
     vrmTemp: [60, 75, 90],   // VRM mosfets
     nvmeTemp: [55, 65, 75],  // NVMe
     boardTemp: [45, 55, 65], // Board/ambient (nct_t14/t15 thermistors)
+    memory: [70, 90, 110],   // GDDR6 (saturates at 120 — the JEDEC sensor limit)
 };
 
 function statusFor(value, [warnAt, seriousAt, criticalAt]) {
@@ -52,6 +53,15 @@ function setTempStatus(id, tempC, thresholds) {
     el.classList.remove('status-good', 'status-warning', 'status-serious', 'status-critical');
     el.classList.add(status);
     el.dataset.status = status;
+}
+
+// Reverts an element to its unstatused default color — used when a reading
+// (e.g. GDDR6 memory) goes from valid back to unavailable/stale.
+function clearTempStatus(id) {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.status === 'none') return;
+    el.classList.remove('status-good', 'status-warning', 'status-serious', 'status-critical');
+    el.dataset.status = 'none';
 }
 
 // ==========================================
@@ -200,26 +210,85 @@ function updateUI() {
         setText('sys-gpu-temp', val.toFixed(1) + '°C');
         setTempStatus('sys-gpu-temp', val, TEMP_THRESH.dieTemp);
     }
+    // NVMe Temp is an ordinary reading, not an alarm figure: plain text, no
+    // per-value status color (only the °C unit and the GDDR6 MAX figure below
+    // carry a highlight — see .temp-unit and memory-hotspot-figure).
     if (data.software.nvme_temp_c >= 0) {
         const val = smooth('nvme_temp_c', data.software.nvme_temp_c, SMOOTHING_CRISP);
         setText('nvme-temp', val.toFixed(1));
         setBar('nvme-temp-bar', val);
-        setTempStatus('nvme-temp-figure', val, TEMP_THRESH.nvmeTemp);
-        setTempStatus('nvme-temp-bar', val, TEMP_THRESH.nvmeTemp);
     }
-    if (data.software.nct_t14_c >= 0) {
-        const val = smooth('nct_t14', data.software.nct_t14_c, SMOOTHING_CRISP);
-        setText('therm-14', val.toFixed(1));
-        setBar('therm-14-bar', val);
-        setTempStatus('therm-14-figure', val, TEMP_THRESH.boardTemp);
-        setTempStatus('therm-14-bar', val, TEMP_THRESH.boardTemp);
+    // Thermistors 14/15 merged into one row (same pattern as the Board Temp
+    // row on dashboard v2): two figures side by side, one shared bar. Plain
+    // text like NVMe Temp above — neither reading is a designated "max".
+    if (data.software.nct_t14_c >= 0 && data.software.nct_t15_c >= 0) {
+        const t14 = smooth('nct_t14', data.software.nct_t14_c, SMOOTHING_CRISP);
+        const t15 = smooth('nct_t15', data.software.nct_t15_c, SMOOTHING_CRISP);
+        setText('therm-14', t14.toFixed(1));
+        setText('therm-15', t15.toFixed(1));
+        setBar('therm-14-15-bar', (t14 + t15) / 2);
     }
-    if (data.software.nct_t15_c >= 0) {
-        const val = smooth('nct_t15', data.software.nct_t15_c, SMOOTHING_CRISP);
-        setText('therm-15', val.toFixed(1));
-        setBar('therm-15-bar', val);
-        setTempStatus('therm-15-figure', val, TEMP_THRESH.boardTemp);
-        setTempStatus('therm-15-bar', val, TEMP_THRESH.boardTemp);
+
+    // GDDR6 memory (optional service, may not be installed): a lightweight
+    // hotspot/average readout plus a compact 8-chip breakdown, reusing the
+    // same merged-row pattern above — no board halos, that's v2's job.
+    // Only the hotspot (MAX, and its matching chip(s)) carries status
+    // coloring; every other value stays plain like the readings above.
+    const mem = data.memory;
+    const memRow = document.getElementById('memory-row');
+    const memChips = document.getElementById('mem-chips');
+    if (memRow) {
+        const valid = !!mem && mem.valid === true;
+        const status = valid ? (mem.saturated ? 'saturated' : 'ok') : ((mem && mem.status) || 'unavailable');
+        // 'unavailable' means the collector was never installed/enabled — not
+        // a transient hiccup (stale/error/starting) on an actually-installed
+        // one, which stays visible with dashes so a real problem is noticed.
+        const hidden = status === 'unavailable';
+        memRow.style.display = hidden ? 'none' : '';
+        if (memChips) memChips.style.display = hidden ? 'none' : '';
+        if (!hidden) {
+            memRow.dataset.memoryStatus = status;
+            memRow.title = valid ? '' : `GDDR6 memory: ${status}`;
+            if (valid) {
+                const prefix = mem.saturated ? '≥' : '';
+                setText('memory-hotspot', prefix + mem.hotspot_c.toFixed(0));
+                setText('memory-average', prefix + mem.average_c.toFixed(1));
+                setTempStatus('memory-hotspot-figure', mem.hotspot_c, TEMP_THRESH.memory);
+                setBar('memory-bar', mem.hotspot_c);
+                setTempStatus('memory-bar', mem.hotspot_c, TEMP_THRESH.memory);
+            } else {
+                setText('memory-hotspot', '—');
+                setText('memory-average', '—');
+                clearTempStatus('memory-hotspot-figure');
+                setBar('memory-bar', 0);
+                clearTempStatus('memory-bar');
+            }
+            const chips = valid && Array.isArray(mem.chips_c) ? mem.chips_c : null;
+            for (let i = 0; i < 8; ++i) {
+                const figureId = `mem-chip-figure-${i}`;
+                const figure = document.getElementById(figureId);
+                const t = chips && typeof chips[i] === 'number' && Number.isFinite(chips[i]) ? chips[i] : null;
+                if (t !== null) {
+                    setText(`mem-chip-val-${i}`, (t === 120 ? '≥' : '') + t.toFixed(0));
+                    setBar(`mem-chip-bar-${i}`, Math.max(0, t));
+                    const hottest = t === mem.hotspot_c;
+                    if (figure) figure.classList.toggle('temp-vrm', hottest);
+                    if (hottest) {
+                        setTempStatus(figureId, t, TEMP_THRESH.memory);
+                        setTempStatus(`mem-chip-bar-${i}`, t, TEMP_THRESH.memory);
+                    } else {
+                        clearTempStatus(figureId);
+                        clearTempStatus(`mem-chip-bar-${i}`);
+                    }
+                } else {
+                    setText(`mem-chip-val-${i}`, '—');
+                    setBar(`mem-chip-bar-${i}`, 0);
+                    if (figure) figure.classList.remove('temp-vrm');
+                    clearTempStatus(figureId);
+                    clearTempStatus(`mem-chip-bar-${i}`);
+                }
+            }
+        }
     }
 
     if (data.software.cpu_freq_mhz >= 0) {
@@ -239,7 +308,6 @@ function updateUI() {
         setText('fan-rpm', val.toFixed(0));
         let pwmVal = smooth('fan_pwm', data.cooling.fan_pwm_pct, SMOOTHING_CRISP);
         setText('fan-pwm', pwmVal.toFixed(0));
-        setBar('fan-pwm-bar', pwmVal);
         setGauge('fan-rpm-gauge', val, 4000);
     }
 }

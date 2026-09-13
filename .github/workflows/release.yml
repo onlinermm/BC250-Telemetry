@@ -20,13 +20,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Test memory integration without hardware
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_memory.py' -v
+          node tests/test_v2_memory.js
+          python3 web/v2/build_markup.py --check
+          bash tests/test_install_lib.sh
+          bash -n install.sh install-lib.sh uninstall.sh
+
       - name: Build static apu_telemetry
         run: |
-          if g++ -O2 -static -o apu_telemetry bc250_telemetry.cpp; then
+          if g++ -std=c++17 -Wall -Wextra -O2 -static -o apu_telemetry bc250_telemetry.cpp; then
             echo "Static build succeeded." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "⚠️ Static link failed, falling back to dynamic build — this binary may not run on distros without matching shared libs." >> "$GITHUB_STEP_SUMMARY"
-            g++ -O2 -o apu_telemetry bc250_telemetry.cpp
+            g++ -std=c++17 -Wall -Wextra -O2 -o apu_telemetry bc250_telemetry.cpp
           fi
 
       - name: Verify binary
@@ -47,9 +55,9 @@ jobs:
         run: |
           BUNDLE=bc250-telemetry
           mkdir -p "dist/$BUNDLE/web"
-          cp apu_telemetry bc250_telemetry.cpp install.sh install-lib.sh uninstall.sh apu-telemetry.service README.md LICENSE hardware.md "dist/$BUNDLE/"
+          cp apu_telemetry bc250_telemetry.cpp memory_telemetry.h install.sh install-lib.sh uninstall.sh apu-telemetry.service README.md LICENSE hardware.md "dist/$BUNDLE/"
           cp -r web/. "dist/$BUNDLE/web/"
-          cp -r images "dist/$BUNDLE/"
+          cp -r images memory "dist/$BUNDLE/"
           chmod +x "dist/$BUNDLE/apu_telemetry" "dist/$BUNDLE/install.sh" "dist/$BUNDLE/uninstall.sh"
           tar -C dist -czf bc250-telemetry.tar.gz "$BUNDLE"
 

@@ -173,6 +173,11 @@ body {
 .core-temps { text-align: right; }
 .sys-temp { font-size: 2.2rem; font-weight: 800; text-shadow: 0 0 10px rgba(255,255,255,0.1); }
 .sys-temp-lbl { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: -0.2rem;}
+/* Fan label + PWM readout, moved up next to the RPM gauge instead of living
+   in the telemetry list below (was the "Fan PWM Signal" row). */
+.fan-label { font-size: 1.2rem; color: var(--text-main); font-weight: 800; text-shadow: 0 0 10px rgba(255,255,255,0.2); }
+.fan-pwm-sub { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-top: 0.15rem; }
+.fan-pwm-sub span { color: var(--accent); font-weight: 800; }
 
 /* VRM ROWS (Table style) */
 .vrm-data {
@@ -197,11 +202,39 @@ body {
     display: flex; justify-content: space-between; align-items: center;
     font-size: 0.95rem; font-weight: 600;
 }
-.vrm-row-main span:first-child { color: var(--text-muted); font-weight: 400; }
+/* Direct-child combinator: only the row's own leading label span (e.g.
+   "NVMe Temp") should be muted — not a nested value span deeper inside
+   (a merged-pair figure like Thermistors/GDDR6 Memory is also a <span>
+   and would otherwise match this as its own container's first child). */
+.vrm-row-main > span:first-child { color: var(--text-muted); font-weight: 400; }
 .r-val { font-size: 1.05rem; }
 .vrm-row.highlight { background: rgba(56, 189, 248, 0.05); border-radius: 6px; padding: 0.4rem; margin: 0 -0.4rem; }
 .vrm-row.highlight .r-val { color: var(--accent); font-weight: 800; text-shadow: 0 0 10px var(--accent-glow);}
 .temp-vrm { font-weight: 800; }
+
+/* Two figures sharing one row (Thermistors, GDDR6 Memory) instead of a
+   single value — same idea as the merged Board Temp row on dashboard v2. */
+.r-val-pair { display: flex; align-items: baseline; gap: 0.5rem; }
+.r-val-sep { color: var(--text-muted); font-weight: 400; }
+.r-val-tag { font-size: 0.6rem; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px; vertical-align: middle; }
+/* The one highlight ordinary readings keep: the °C unit itself, not the
+   number — severity coloring is reserved for the GDDR6 MAX figure. */
+.temp-unit { color: var(--accent); font-weight: 700; margin-left: 0.1rem; }
+/* Inside a severity-colored figure (.temp-vrm carrying a live status class,
+   e.g. the GDDR6 MAX reading), the unit should track the value's own color
+   instead of the fixed accent highlight used by ordinary readings above. */
+.temp-vrm .temp-unit { color: inherit; }
+
+/* Per-chip GDDR6 breakdown: a compact 4x2 grid under the GDDR6 Memory row.
+   Same rule as everywhere else in this card — plain by default, and only
+   the chip(s) tied for hottest pick up .temp-vrm + a live status color. */
+.mem-chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.8rem 0.8rem; margin-top: 0.9rem; }
+.mem-chip { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.mem-chip-row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.2rem; font-size: 0.85rem; }
+.mem-chip-idx { color: var(--text-muted); font-size: 0.7rem; font-weight: 600; }
+.mem-chip .r-val { font-size: 0.8rem; }
+.mem-chip .temp-unit { font-size: 0.7rem; }
+.mem-chip .mini-bar { height: 2px; }
 
 /* Chip-reported STATUS_TEMPERATURE/STATUS_IOUT fault & warning bits — hidden
    unless the PMIC itself has actually latched the bit (see bc250_telemetry.cpp). */
