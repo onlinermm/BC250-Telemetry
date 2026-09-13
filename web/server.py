@@ -5,8 +5,8 @@ import os
 
 import topology
 import overclock
+import telemetry
 
-# CLAUDE.md documents port 8090 as the canonical port for this service.
 PORT = int(os.environ.get("BC250_WEB_PORT", 8090))
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
@@ -33,36 +33,41 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
+    def _send_json(self, payload, status=200, *, allow_nan=True):
+        # Serialize BEFORE sending headers: if json.dumps raises (e.g. a
+        # non-finite value under allow_nan=False), we must not have already
+        # committed a 200 with no body. Sending Content-Length also lets
+        # clients detect a truncated response.
+        try:
+            body = json.dumps(payload, allow_nan=allow_nan).encode()
+        except ValueError:
+            status = 503
+            body = json.dumps({'error': 'telemetry contained non-finite values'}).encode()
+        self.send_response(status)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
-        # Our own API endpoint — serves the JSON straight from memory
+        # The daemon owns the complete snapshot, including memory telemetry.
         if self.path == '/api/telemetry':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            try:
-                with open('/run/apu_telemetry.json', 'r') as f:
-                    self.wfile.write(f.read().encode())
-            except Exception as e:
-                self.wfile.write(json.dumps({"error": str(e)}).encode())
+            snapshot = telemetry.read_telemetry()
+            # A missing/corrupt snapshot degrades to an error object; report
+            # it as 503 so monitoring can tell a broken daemon from a healthy
+            # one. The frontend already treats any error body as a failure.
+            self._send_json(snapshot, 503 if 'error' in snapshot else 200, allow_nan=False)
         # Core/CU counts: queried fresh per request, not cached — the
         # frontend only calls this once per page load, so there's no need to
         # cache it server-side, and a fresh read means a live WGP/core
         # unlock shows up correctly if the page happens to be reloaded.
         elif self.path == '/api/topology':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(topology.read_topology()).encode())
+            self._send_json(topology.read_topology())
         # Same once-per-page-load cadence as /api/topology — this is config
         # state (an OC file edit, a service (de)activation), not telemetry.
         elif self.path == '/api/overclock':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(overclock.read_overclock()).encode())
+            self._send_json(overclock.read_overclock())
         elif self.path == '/' and DEFAULT_DASHBOARD == 'v2':
             self.send_response(302)
             self.send_header('Location', '/v2/')
@@ -71,17 +76,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # Fall through to serving regular static files (index.html, style.css)
             super().do_GET()
 
-print("=========================================")
-print(f" Web server running on port {PORT}")
-print(f" Open in your browser: http://localhost:{PORT}")
-print(f" Default dashboard at \"/\": {DEFAULT_DASHBOARD}")
-print("=========================================")
+def main():
+    print("=========================================")
+    print(f" Web server running on port {PORT}")
+    print(f" Open in your browser: http://localhost:{PORT}")
+    print(f" Default dashboard at \"/\": {DEFAULT_DASHBOARD}")
+    print("=========================================")
 
-# Allow instant server restarts instead of waiting for the kernel to release the port
-socketserver.TCPServer.allow_reuse_address = True
+    # Allow instant server restarts instead of waiting for the kernel to release the port
+    socketserver.TCPServer.allow_reuse_address = True
+    # Threaded so a slow endpoint (topology/overclock shell out to systemctl)
+    # cannot stall the fast /api/telemetry poll for every other client.
+    with http.server.ThreadingHTTPServer(("", PORT), Handler) as httpd:
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nServer stopped.")
 
-with socketserver.TCPServer(("", PORT), Handler) as httpd:
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\nServer stopped.")
+
+if __name__ == '__main__':
+    main()

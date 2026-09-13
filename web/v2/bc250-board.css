@@ -16,6 +16,15 @@
   animation: bc250-flow var(--bc-flow-duration, 2.8s) linear infinite;
 }
 
+/* Memory uses the same radial halo style as APU/VRM. The outline marks
+   relative hotspots; the halo color follows the absolute chip temperature. */
+.bc-memory-chip,
+.bc-memory-chip ellipse,
+.bc-memory-hotspot { transition: opacity .35s ease; }
+[id^="bc-memory-gradient-"] { transition: color .35s ease; }
+.bc-memory-chip.is-hottest .bc-memory-hotspot { opacity: .95; }
+.bc-memory-chip.is-saturated .bc-memory-hotspot { stroke: #fb7185; }
+
 /* Driven from app.js via el.style.animationDuration — never rewrite the whole
    `animation` shorthand, since that restarts the keyframes and reads as a stutter.
    #bc-heat            opacity/rx/ry/fill -> SMU PPT (fill switches between
@@ -28,5 +37,7 @@
    --bc-flow-duration  total power draw -> speed of the "current flow" animation on the traces */
 
 @media (prefers-reduced-motion: reduce) {
+  .bc-memory-chip, .bc-memory-chip ellipse, .bc-memory-hotspot,
+  [id^="bc-memory-gradient-"] { transition: none; }
   #bc-fan1-blades, #bc-fan2-blades, #bc-power-flow, #bc-vrm-flow-cpu, #bc-vrm-flow-gpu { animation: none; }
 }
