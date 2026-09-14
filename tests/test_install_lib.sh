@@ -50,6 +50,17 @@ if [ -z "$WARNING_OUTPUT" ]; then
 fi
 assert_equals "" "$DASHBOARD_FLAG" "an unrecognized flag should not set the dashboard flag"
 
+# install_nct6687_via_dkms must return 1 (allowing the nct6683 fallback) rather
+# than erroring out when the build toolchain isn't available. With a trimmed
+# PATH no tool is found, so the function short-circuits before ever using sudo.
+OLD_PATH="$PATH"
+PATH="/nonexistent"
+if install_nct6687_via_dkms; then
+    echo "ASSERTION FAILED: install_nct6687_via_dkms must fail when the toolchain is unavailable" >&2
+    exit 1
+fi
+PATH="$OLD_PATH"
+
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
