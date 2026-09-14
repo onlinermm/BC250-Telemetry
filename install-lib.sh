@@ -50,9 +50,9 @@ choose_memory_monitoring() {
 }
 
 # Echoes "nct6683" or "nct6687" if either sensor module is already loaded,
-# empty otherwise. install.sh only sets up nct6683 when this comes back empty
-# — an already-active driver (from a previous run, or the distro itself) is
-# left as is.
+# empty otherwise. install.sh doesn't touch anything when this comes back non-
+# empty — an already-active driver (from a previous run, bc250-monitoring, or
+# the distro itself) is left as is.
 detect_active_sensor_driver() {
     if lsmod 2>/dev/null | grep -q '^nct6687 '; then
         echo "nct6687"
@@ -63,12 +63,69 @@ detect_active_sensor_driver() {
     fi
 }
 
+# Preferred driver config: the in-kernel nct6683 is read-only on this board and
+# can't drive PWM fan curves, so we autoload the out-of-tree nct6687 instead
+# and keep nct6683 from ever binding to the same chip.
+write_nct6687_driver_configs() {
+    sudo mkdir -p /etc/modules-load.d /etc/modprobe.d
+    echo "nct6687" | sudo tee /etc/modules-load.d/99-sensors.conf > /dev/null
+    sudo tee /etc/modprobe.d/sensors.conf > /dev/null <<EOF
+blacklist nct6683
+options nct6687 force=true
+EOF
+}
+
+# Build and load the out-of-tree nct6687 driver (PWM fan control) via DKMS.
+# Returns 0 on success; on any failure (missing toolchain/headers, failed
+# clone or dkms build) it cleans up after itself and returns 1, so install.sh
+# can fall back to the in-kernel, monitoring-only nct6683.
+install_nct6687_via_dkms() {
+    local builddir=""
+    for tool in git make gcc dkms; do
+        command -v "$tool" >/dev/null 2>&1 || return 1
+    done
+    # Kernel headers for the running kernel are required to build anything.
+    [ -d "/lib/modules/$(uname -r)/build" ] || return 1
+
+    builddir="$(mktemp -d)"
+    if ! git clone --depth 1 --quiet https://github.com/Fred78290/nct6687d.git \
+        "$builddir" 2>/dev/null; then
+        rm -rf "$builddir"
+        return 1
+    fi
+
+    # Keep the BC-250 "CPU Fan"/"Pump Fan" labels correct (both fan config
+    # variants get swapped) — see https://github.com/pavelhot-oss/bc250-monitoring.
+    if [ -f "$SCRIPT_DIR/50-nct6687-labels.patch" ]; then
+        if git -C "$builddir" apply --check "$SCRIPT_DIR/50-nct6687-labels.patch" 2>/dev/null; then
+            git -C "$builddir" apply "$SCRIPT_DIR/50-nct6687-labels.patch"
+        else
+            echo -e "${YELLOW}⚠ Label patch no longer applies to the nct6687d source — installing without it.${NC}"
+        fi
+    fi
+
+    # Idempotent: re-runs over an already-DKMS-installed driver re-register it.
+    sudo dkms remove nct6687d/1 --all 2>/dev/null || true
+    sudo rm -rf /usr/src/nct6687d-1
+
+    if ! sudo dkms add "$builddir" 2>/dev/null ||
+       ! sudo dkms build nct6687d/1 2>/dev/null ||
+       ! sudo dkms install nct6687d/1 --force 2>/dev/null; then
+        echo -e "${YELLOW}⚠ nct6687 DKMS build failed — see /var/lib/dkms/nct6687d/1/build/make.log if it exists.${NC}"
+        rm -rf "$builddir"
+        return 1
+    fi
+    rm -rf "$builddir"
+}
+
+# Fallback (monitoring only — no PWM control).
 write_sensor_driver_configs() {
     sudo mkdir -p /etc/modules-load.d /etc/modprobe.d
     echo "nct6683" | sudo tee /etc/modules-load.d/99-sensors.conf > /dev/null
     echo "options nct6683 force=true" | sudo tee /etc/modprobe.d/sensors.conf > /dev/null
 }
 
+# Fallback (monitoring only — no PWM control).
 load_sensor_driver() {
     sudo modprobe nct6683 force=true
 }

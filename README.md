@@ -118,14 +118,24 @@ sudo ./install.sh
 ```
 
 `install.sh` compiles the daemon (or falls back to the prebuilt
-`apu_telemetry` binary next to it), sets up the `nct6683` fan-controller
-module, installs the systemd units, asks about memory monitoring and which dashboard to serve by
+`apu_telemetry` binary next to it), sets up the board's Nuvoton fan
+controller — preferring the out-of-tree `nct6687` driver, which adds full
+PWM fan-speed control via DKMS, and falling back to the read-only `nct6683`
+when the build toolchain/kernel headers aren't available (e.g. an immutable
+SteamOS/Bazzite image) — installs the systemd units, asks about memory monitoring and which dashboard to serve by
 default at `/` — classic (`v1`) or the animated diagram (`v2`); the other
 stays reachable either way. To skip the prompt (e.g. for a scripted
 install):
 
 ```bash
 sudo ./install.sh --dashboard=v2   # or v1
+```
+
+Memory temperatures (GDDR6 — all 8 chips, average, hotspot; needs the stock
+P3.0 BIOS, see [memory/README.md](memory/README.md)):
+
+```bash
+sudo ./install.sh --memory-temp        # disable with --no-memory-temp
 ```
 
 Check that it's running:
@@ -159,9 +169,26 @@ sudo ./uninstall.sh
 
 ```bash
 # Fan controller module (not autodetected on this board)
-sudo sh -c 'echo "nct6683" > /etc/modules-load.d/99-sensors.conf'
-sudo sh -c 'echo "options nct6683 force=true" > /etc/modprobe.d/sensors.conf'
-sudo modprobe nct6683 force=true
+# Preferred: out-of-tree nct6687 (adds PWM fan-speed control). install.sh
+# builds this automatically when the toolchain/kernel headers are available;
+# the packaged script also applies the BC-250 CPU Fan/Pump Fan label fix.
+# Pre-requisites: git, make, gcc, dkms, and headers for $(uname -r).
+sudo dkms remove nct6687d/1 --all 2>/dev/null; sudo rm -rf /usr/src/nct6687d-1
+tmp=$(mktemp -d)
+git clone --depth 1 https://github.com/Fred78290/nct6687d.git "$tmp"
+git -C "$tmp" apply 50-nct6687-labels.patch
+sudo dkms add "$tmp"; sudo dkms build nct6687d/1; sudo dkms install nct6687d/1 --force
+sudo sh -c 'echo "nct6687" > /etc/modules-load.d/99-sensors.conf'
+sudo tee /etc/modprobe.d/sensors.conf > /dev/null <<'EOF'
+blacklist nct6683
+options nct6687 force=true
+EOF
+sudo modprobe nct6687 force=true
+
+# Fallback (monitoring only, no PWM control) when the toolchain isn't available:
+# sudo sh -c 'echo "nct6683" > /etc/modules-load.d/99-sensors.conf'
+# sudo sh -c 'echo "options nct6683 force=true" > /etc/modprobe.d/sensors.conf'
+# sudo modprobe nct6683 force=true
 
 # Daemon
 g++ -O2 -static bc250_telemetry.cpp -o ./apu_telemetry
@@ -295,3 +322,14 @@ polling them every 700 ms.
 - `config_present: false` (config file missing or unreadable) means the tool
   simply isn't installed — the dashboard hides that panel entirely rather
   than showing zeros.
+
+## Related projects
+
+- [**bc250-monitoring**](https://github.com/pavelhot-oss/bc250-monitoring) —
+  focused *driver + fan-control* setup for the same board: installs the
+  out-of-tree `nct6687` driver (DKMS, multi-distro), the BC-250 label fix, and
+  ships a systemd temperature-based fan curve. This repo's `50-nct6687-labels.patch`
+  is the same fix its `install.sh` applies automatically. Use it if you want
+  hands-on fan control on top of this telemetry stack — and add GDDR6 temps
+  with `./install.sh --memory-temp` (all 8 chips, average + hotspot on the v2
+  dashboard).

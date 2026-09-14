@@ -39,15 +39,26 @@ fi
 
 echo -e "${YELLOW}[STEP 2/7]${NC} Setting up the Nuvoton sensor module (fans)..."
 
-# Only touch the sensor driver if the user has none loaded at all — an
-# already-active nct6683/nct6687 (from a previous run, or the distro itself)
-# is left exactly as is.
+# An already-active nct6683/nct6687 (from a previous run, bc250-monitoring, or
+# the distro itself) is left exactly as is. With none active, prefer the
+# out-of-tree nct6687 (built via DKMS when the toolchain/headers allow it):
+# the in-kernel nct6683 is read-only on this board and can't drive PWM fan
+# curves. If building nct6687 isn't possible, fall back to nct6683 (monitoring
+# only), and if that's not in the kernel either, skip the fan sensor.
 ACTIVE_DRIVER="$(detect_active_sensor_driver)"
 if [ -n "$ACTIVE_DRIVER" ]; then
     echo -e "  -> Found an already-loaded driver ($ACTIVE_DRIVER) — leaving the existing setup as is."
     echo -e "${GREEN}✓ Skipped${NC}\n"
+elif install_nct6687_via_dkms; then
+    echo -e "  -> No sensor driver loaded — built the out-of-tree nct6687 driver (adds PWM fan control)"
+    write_nct6687_driver_configs
+    if sudo modprobe nct6687 force=true; then
+        echo -e "${GREEN}✓ nct6687 loaded — full fan speed control enabled!${NC}\n"
+    else
+        echo -e "${YELLOW}⚠ nct6687 built but failed to load — fan monitoring/control unavailable.${NC}\n"
+    fi
 elif modinfo nct6683 >/dev/null 2>&1; then
-    echo -e "  -> No sensor driver loaded yet, installing nct6683 (monitoring)"
+    echo -e "  -> No sensor driver loaded yet, installing nct6683 (monitoring only — no PWM control)"
     if load_sensor_driver; then
         write_sensor_driver_configs
         echo -e "${GREEN}✓ nct6683 loaded!${NC}\n"
