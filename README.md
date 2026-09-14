@@ -142,6 +142,24 @@ http://<board-ip>:8090/       — classic HUD
 http://<board-ip>:8090/v2/    — animated board diagram
 ```
 
+Run the web server on demand (optional)
+
+By default the web server runs all the time. If you only open the dashboard
+every now and then, it can instead start on first request and stop itself
+again after `BC250_WEB_IDLE` seconds without one (systemd socket activation —
+no extra daemon):
+
+```bash
+sudo systemctl disable bc250-web.service
+sudo systemctl edit bc250-web.service   # add: Environment=BC250_WEB_IDLE=300
+sudo systemctl enable --now bc250-web.socket
+```
+
+The port keeps listening either way; `http://<board-ip>:8090` boots the
+server on first access. Successful requests are never logged; only errors,
+startup and the idle shutdown reach the journal. To go back to always-on,
+`sudo systemctl disable --now bc250-web.socket && sudo systemctl enable bc250-web.service`.
+
 Update (re-run over an already-running install):
 
 ```bash

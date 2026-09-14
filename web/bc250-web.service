@@ -8,8 +8,14 @@ Type=simple
 User=TELEMETRY_USER
 WorkingDirectory=TELEMETRY_WEB_DIR
 Environment=BC250_DEFAULT_DASHBOARD=TELEMETRY_DEFAULT_DASHBOARD
-ExecStart=/usr/bin/python3 TELEMETRY_WEB_DIR/server.py
-Restart=always
+# serve_socket.py: binds the port itself when started directly, or adopts the
+# listen socket when spawned by bc250-web.socket (on-demand mode). Set
+# BC250_WEB_IDLE to seconds of inactivity after which it exits (0 = never).
+ExecStart=/usr/bin/python3 TELEMETRY_WEB_DIR/serve_socket.py
+# on-failure so a clean idle exit (exit code 0) is not restarted, while a
+# crash still gets replaced. On-demand mode respawns the service via the
+# socket unit on the next connection regardless.
+Restart=on-failure
 RestartSec=3
 
 [Install]
