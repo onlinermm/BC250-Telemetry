@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import ctypes
+import logging
 import os
 import struct
 import sys
@@ -84,15 +85,17 @@ def _do_unlock(smu: Bc250Smu, va, phys) -> bool:
     if not smu.alive():
         raise SmuError("SMU not alive - cold power cycle")
     rejected_before = not smu.secure_access_enabled()
-    print("gate before:", "0xFD (closed)" if rejected_before else "open?")
+    logging.info('SMU secure access before unlock: %s', 'rejected (0xFD)' if rejected_before else 'accepted')
 
     dbg = int.from_bytes(smu.smu_read(DBG_DISABLE), 'little')
     entry = int.from_bytes(smu.smu_read(NEW_ENTRY_ADDR), 'little')
-    print("dbg byte 0x%02X entry byte 0x%02X" % (dbg, entry))
+    logging.info('SMU debug-disable byte 0x%02X, patch entry byte 0x%02X', dbg, entry)
     if dbg == 0:
         if rejected_before:
             raise SmuError('debug gate and access probe disagree')
-        print("already unlocked")
+        # Unlocking persists until reboot; another SMU tool or an earlier run
+        # of this service may have done it.
+        logging.info('SMU debug access already enabled this boot; skipping unlock')
         return True
     if entry != 0:
         raise SmuError("unexpected state - verify before trusting")
@@ -112,7 +115,7 @@ def _do_unlock(smu: Bc250Smu, va, phys) -> bool:
         raise SmuError("no dead-zone base below 0x7B20 - aborting")
     N = (0x7B20 - P) // 4
     assert P + 0x18 + 4 * N == NEW_ENTRY_ADDR and 0 < N <= 65535
-    print("P = 0x%05X N = %d" % (P, N))
+    logging.debug('unlock table base 0x%05X, %d entries', P, N)
 
     # Save the actual touched regions before the overflow. P is selected
     # dynamically, so restoring a fixed 0x7950 region is not sufficient.
@@ -151,7 +154,7 @@ def _do_unlock(smu: Bc250Smu, va, phys) -> bool:
     chk = ctypes.string_at(va, 4 * len(fake_transfer_table))
     if chk != expected:
         raise SmuError("fake table did not land")
-    print("fake table ok")
+    logging.debug('staged transfer table verified')
 
 
     ##
@@ -173,16 +176,15 @@ def _do_unlock(smu: Bc250Smu, va, phys) -> bool:
     gst, _ = smu.sec_smn_read32(PROBE_ADDR)
     alive = smu.alive()
     if gst == Bc250Mailbox.SMU_RETURN_OK and alive:
-        print("dbg unlocked; SMU still alive (this was a triumph..)")
+        logging.info('SMU debug access enabled; SMU still responds')
     else:
         raise SmuError("unlock failed (probe=%s alive=%s) - cold power cycle" % (gst and hex(gst), alive))
 
-    print("fixup SMU state")
     for start, data in saved:
         for offset in range(0, len(data), 4):
             smu.smu_write32(start + offset, int.from_bytes(data[offset:offset + 4], 'little'))
 
-    print("saved unlock regions restored")
+    logging.info('SMU memory touched by the unlock restored')
     if not smu.alive() or not smu.secure_access_enabled():
         raise SmuError('SMU did not pass the final unlock probe')
     return True

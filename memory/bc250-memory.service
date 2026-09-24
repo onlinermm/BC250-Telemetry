@@ -5,6 +5,8 @@ After=systemd-modules-load.service
 [Service]
 Type=simple
 User=root
+# Unbuffered, so journal timestamps match when each line was written.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 -B /opt/bc250-memory/collector.py
 RuntimeDirectory=bc250-memory
 RuntimeDirectoryMode=0755
