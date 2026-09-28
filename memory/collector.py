@@ -106,7 +106,10 @@ def run(runtime=RUNTIME_DIR, interval=3.0):
             hardware_started = True
             state = ensure_patch(smu, payload, allow_install=previous is None or retry_empty_slot)
             atomic_json(guard, {'state': 'ready'})
-            logging.info('SMU %s; polling eight chips every %.1f seconds', state, interval)
+            described = {'patched': 'SMU payload installed',
+                         'already_patched': 'SMU payload already installed this boot'}
+            logging.info('%s; polling eight chips every %.1f seconds',
+                         described.get(state, f'SMU {state}'), interval)
             while not STOP.is_set():
                 # Mark each transaction too: a killed reader must not be
                 # restarted onto a potentially still-running firmware request.
@@ -116,6 +119,7 @@ def run(runtime=RUNTIME_DIR, interval=3.0):
                 publish_snapshot(output, result)
                 STOP.wait(interval)
             publish_snapshot(output, unavailable('stopped'))
+            logging.info('Stopped polling; the SMU payload stays installed until reboot')
             return 0
         except Exception as error:
             logging.exception('memory telemetry stopped')
