@@ -1,9 +1,11 @@
 """Offline integration tests; no real SMU, PCI or DMA access."""
 import contextlib
 import ctypes
+import fcntl
 import io
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -88,14 +90,80 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(SmuError): self.smu.transfer_engine_sram_load(0x748C, 1)
         self.assertEqual(len(self.transport.writes), count)
 
-    def test_short_io_is_rejected(self):
+    def config_transport(self):
+        """Transport over a regular file standing in for PCI config space."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / 'config'
+        path.write_bytes(bytes(256))
         transport = Bc250PciTransport()
-        transport._fd = 99999
+        transport._config_path = str(path)
+        with patch('bc250_smu.transport.os.geteuid', return_value=0):
+            transport.open()
+        self.addCleanup(transport.close)
+        return transport, path
+
+    def assert_window_free(self, path):
+        with open(path, 'rb') as other:
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_short_io_is_rejected_and_releases_the_window(self):
+        transport, path = self.config_transport()
         with patch('bc250_smu.transport.os.pwrite', return_value=0):
             with self.assertRaises(OSError): transport.write_smu_reg(0, 0)
+        self.assert_window_free(path)
         with patch('bc250_smu.transport.os.pwrite', return_value=4), \
                 patch('bc250_smu.transport.os.pread', return_value=b'\0'):
             with self.assertRaises(OSError): transport.read_smu_reg(0)
+        self.assert_window_free(path)
+
+    def test_address_and_value_share_one_flock(self):
+        transport, _ = self.config_transport()
+        events = []
+        real_flock, real_pwrite, real_pread = fcntl.flock, os.pwrite, os.pread
+        def flock(fd, operation):
+            events.append('lock' if operation == fcntl.LOCK_EX else 'unlock')
+            real_flock(fd, operation)
+        def pwrite(fd, data, offset):
+            events.append(('write', offset))
+            return real_pwrite(fd, data, offset)
+        def pread(fd, size, offset):
+            events.append(('read', offset))
+            return real_pread(fd, size, offset)
+        with patch('bc250_smu.transport.fcntl.flock', side_effect=flock), \
+                patch('bc250_smu.transport.os.pwrite', side_effect=pwrite), \
+                patch('bc250_smu.transport.os.pread', side_effect=pread):
+            transport.write_smu_reg(0x03B10A88, 3)
+            self.assertEqual(transport.read_smu_reg(0x03B10A80), 3)
+        pair = [('write', 0xB8), ('read', 0xBC)]
+        self.assertEqual(events, ['lock', ('read', 0xB8), ('write', 0xB8), ('write', 0xBC), ('write', 0xB8), 'unlock',
+                                  'lock', ('read', 0xB8), *pair, ('write', 0xB8), 'unlock'])
+
+    def test_pair_between_a_neighbours_address_and_value_keeps_their_address(self):
+        # bc250_smu_oc and the governor lock each config access, not the pair.
+        transport, path = self.config_transport()
+        with open(path, 'r+b') as neighbour:
+            neighbour.seek(0xB8)
+            neighbour.write(struct.pack('<I', 0x03B10564))
+            neighbour.flush()
+            transport.write_smu_reg(0x03B10A88, 5)
+            self.assertEqual(transport.read_smu_reg(0x03B10A88), 5)
+            neighbour.seek(0xB8)
+            self.assertEqual(struct.unpack('<I', neighbour.read(4))[0], 0x03B10564)
+
+    def test_pair_waits_for_another_process_holding_the_window(self):
+        transport, path = self.config_transport()
+        with open(path, 'rb') as other:
+            fcntl.flock(other, fcntl.LOCK_EX)
+            writer = threading.Thread(target=transport.write_smu_reg, args=(0x03B10A88, 0x12345678))
+            writer.start()
+            writer.join(0.2)
+            self.assertTrue(writer.is_alive())
+            self.assertEqual(path.read_bytes()[0xB8:0xC0], bytes(8))
+            fcntl.flock(other, fcntl.LOCK_UN)
+            writer.join(5)
+        self.assertFalse(writer.is_alive())
+        self.assertEqual(path.read_bytes()[0xB8:0xC0], struct.pack('<II', 0, 0x12345678))
 
 
 class SramSmu:

@@ -42,9 +42,15 @@ sudo python3 -B memory/collector.py --check
 The platform gate accepts DMI board `AMD BC-250`/`BC-250`/`BC250`, BIOS `P3.0`/`P3.00`,
 an AMD PCI root, and GPU `1002:13fe`. These identifiers do not authenticate
 firmware contents; custom firmware with the same identifiers is unsupported.
-Stop other SMU patching/overclock tools before enabling this service. Its file
-lock coordinates instances of this collector only, not arbitrary utilities or
-kernel drivers.
+Stop other SMU patching/overclock tools before enabling this service. Each SMN
+address/value pair is written under an exclusive `flock` on the root complex's
+`config` file, the lock `bc250_smu_oc` and `cyan-skillfish-governor-smu` also
+take, so those tools cannot interleave with a pair. They lock each access
+separately, so the collector restores the address they had selected before
+releasing the lock. It does not exclude tools that access the window without
+that lock, kernel drivers, or other processes sending messages to the same
+mailbox queue. The collector's own lock in
+`/run/bc250-memory` only keeps a second collector from starting.
 
 ## Startup and failure behavior
 

@@ -13,6 +13,12 @@ DMA table readback using a cleared buffer, and restoring saved unlock regions
 instead of hardcoded contents. No automatic rollback is attempted after a failed
 SMU transaction because firmware may still be executing it.
 
+The transport holds an exclusive `flock` on the PCI config file across each
+SMN address/value pair (`0xB8`/`0xBC`), matching the lock other BC-250 SMU
+tools take on that file, so a pair cannot be torn by them (issue #16). The
+previously selected address is restored before the lock is released, because
+those tools lock each access separately rather than the pair.
+
 SRAM reads now transfer the staged source twice into differently filled host
 buffers and require matching results. This detects missing/partial DMA writes
 that would otherwise be mistaken for zero-valued SRAM.

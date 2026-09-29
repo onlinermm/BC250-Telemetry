@@ -1,5 +1,7 @@
 # BC-250 Telemetry
 
+![Made in Ukraine](images/made-in-ukraine.svg)
+
 A telemetry daemon and web dashboard for the AMD BC-250 (Oberon / Cyan
 Skillfish, `gfx1013`, PCI ID `1002:13fe`) — the decommissioned mining-board
 APU carved out of the PS5. Runs on Bazzite, SteamOS, and CachyOS from the
