@@ -19,24 +19,84 @@ source ./install-lib.sh
 # future (or on a leftover flag from an older version, like the removed
 # --fan-control).
 parse_install_args "$@"
+if ! resolve_install_components; then exit 2; fi
+if [ "$DRY_RUN_FLAG" = 1 ]; then
+    echo -e "${BLUE}=== BC-250 Telemetry install plan (dry run) ===${NC}"
+    print_install_plan
+    echo "No system files or services were changed."
+    exit 0
+fi
 
 echo -e "${BLUE}=== Installing BC-250 Telemetry ===${NC}"
 echo -e "Hey, this script will set up monitoring for your board."
 echo -e "We'll be using 'sudo' for system files, so the system might ask for your password.\n"
 
-echo -e "${YELLOW}[STEP 1/7]${NC} Choosing memory temperature monitoring..."
-MEMORY_EXISTING=0
-if systemctl is-enabled --quiet bc250-memory.service 2>/dev/null; then
-    MEMORY_EXISTING=1
-fi
-choose_memory_monitoring "$MEMORY_EXISTING"
-if [ "$MEMORY_ENABLED" = 1 ]; then
-    echo "  -> Memory monitoring enabled; checking board and payload compatibility"
-    sudo python3 -B "$SCRIPT_DIR/memory/collector.py" --check
-else
-    echo "  -> Memory monitoring disabled"
+# Kernel drivers from linux-cachyos-bc250 / Hexxeh's bc250-*-dkms packages.
+# The daemon picks them up by itself (see /etc/bc250-telemetry.conf); the
+# installer only has to keep our own SMU collector out of their way.
+VRM_KERNEL="$(kernel_module_state bc250_vrm)"
+MEMORY_KERNEL="$(kernel_module_state bc250_memory)"
+MEMORY_KERNEL_OWNS=0
+if kernel_memory_driver_active; then MEMORY_KERNEL_OWNS=1; fi
+
+echo -e "${YELLOW}[STEP 1/7]${NC} Choosing sensor sources (VRM and GDDR6)..."
+
+echo "  VRM (CPU/GPU rails):"
+case "$VRM_KERNEL" in
+    loaded)
+        if grep -qsx bc250_vrm /sys/class/hwmon/hwmon*/name; then
+            echo "  -> Kernel bc250_vrm driver active: read from hwmon, no direct I2C access"
+        else
+            echo "  -> Kernel bc250_vrm driver loaded but not bound (no SMBus hardware mod?): VRM telemetry unavailable"
+        fi ;;
+    autoload)
+        echo "  -> Kernel bc250_vrm driver installed: after a reboot VRM telemetry comes from hwmon" ;;
+    *)
+        echo "  -> No bc250_vrm kernel driver: VRM telemetry uses direct PMBus over I2C" ;;
+esac
+
+# A blacklist left over from the old "fix" for the collision with the kernel
+# driver still works (the daemon falls back to direct PMBus), but it keeps VRM
+# out of hwmon. Only tell the user; the file, and how initramfs is rebuilt on
+# this distro, are theirs.
+VRM_BLACKLIST="$(blacklist_files_for bc250_vrm)"
+VRM_BLACKLIST="${VRM_BLACKLIST%%$'\n'*}"
+if [ -n "$VRM_BLACKLIST" ]; then
+    echo -e "${YELLOW}⚠ bc250_vrm is blacklisted in $VRM_BLACKLIST.${NC}"
+    echo "     It is no longer needed. To get VRM data via hwmon (sensors, CoolerControl),"
+    echo "     remove that line, rebuild the initramfs for your distro, and reboot."
+    echo "     Until then VRM telemetry keeps using direct PMBus, as before."
 fi
 
+echo "  GDDR6 memory temperatures:"
+MEMORY_ENABLED=0
+if [ "$MEMORY_KERNEL_OWNS" = 1 ]; then
+    echo "  -> Kernel bc250_memory driver detected ($MEMORY_KERNEL): GDDR6 temperatures"
+    echo "     will be read from hwmon. bc250-memory.service is not installed — it would"
+    echo "     collide with the kernel driver on SMU queue 3."
+    if [ "$MEMORY_TEMP_FLAG" = 1 ]; then
+        echo -e "${YELLOW}⚠ --memory-temp ignored: the kernel driver already provides memory temperatures.${NC}"
+    fi
+elif [ "$COMPONENT_MEMORY" = 1 ]; then
+    if [ "$MEMORY_KERNEL" = blacklisted ]; then
+        echo "  -> Your kernel ships the bc250_memory driver, disabled by default. Instead of"
+        echo "     bc250-memory.service you can enable it (then reboot; never use both):"
+        echo "       echo bc250_memory | sudo tee /etc/modules-load.d/bc250-memory.conf"
+    fi
+    MEMORY_EXISTING=0
+    if memory_service_existing; then MEMORY_EXISTING=1; fi
+    choose_memory_monitoring "$MEMORY_EXISTING"
+    if [ "$MEMORY_ENABLED" = 1 ]; then
+        echo "  -> Memory monitoring enabled; checking board and payload compatibility"
+        sudo python3 -B "$SCRIPT_DIR/memory/collector.py" --check
+    else
+        echo "  -> Memory monitoring not enabled (existing files and data are left untouched)"
+    fi
+else
+    echo "  -> Preserving existing memory service, files, and telemetry data"
+fi
+
+if [ "$COMPONENT_NUVOTON" = 1 ]; then
 echo -e "${YELLOW}[STEP 2/7]${NC} Setting up the Nuvoton sensor module (fans)..."
 
 # Only touch the sensor driver if the user has none loaded at all — an
@@ -59,6 +119,9 @@ else
     echo -e "  Skipping — fan monitoring (nct_*) will be unavailable,"
     echo -e "  the rest of the telemetry (VRM, CPU, GPU, NVMe) will work as usual.\n"
 fi
+else
+    echo "  -> Preserving existing Nuvoton configuration and sensor services"
+fi
 
 # Source code, if present next to the script, always takes priority over any
 # prebuilt binary: otherwise, after editing the .cpp file, install.sh could
@@ -68,7 +131,7 @@ fi
 # announced, never silent.
 echo -e "${YELLOW}[STEP 3/7]${NC} Preparing the apu_telemetry binary..."
 BUILT=0
-if [ -f ./bc250_telemetry.cpp ]; then
+if [ "$COMPONENT_DAEMON" = 1 ] && [ -f ./bc250_telemetry.cpp ]; then
     if ! command -v g++ >/dev/null 2>&1; then
         echo -e "${YELLOW}⚠ g++ not found on the system (SteamOS/Bazzite don't have a toolchain out of the box) — can't compile bc250_telemetry.cpp.${NC}"
     else
@@ -98,7 +161,7 @@ if [ "$BUILT" = "1" ]; then
         exit 1
     fi
     echo -e "${GREEN}✓ Binary ready!${NC}\n"
-elif [ -f ./apu_telemetry ]; then
+elif [ "$COMPONENT_DAEMON" = 1 ] && [ -f ./apu_telemetry ]; then
     if [ -f ./bc250_telemetry.cpp ]; then
         echo -e "  -> Falling back to the prebuilt ./apu_telemetry next to the script."
     else
@@ -115,7 +178,7 @@ else
     exit 1
 fi
 
-if [ "$MEMORY_ENABLED" = 1 ] && ! supports_memory_snapshot ./apu_telemetry; then
+if [ "$COMPONENT_MEMORY" = 1 ] && [ "$MEMORY_ENABLED" = 1 ] && ! supports_memory_snapshot ./apu_telemetry; then
     echo "The selected binary lacks memory snapshot support. Build the current sources or use the updated release."
     exit 1
 fi
@@ -156,8 +219,25 @@ if command -v restorecon >/dev/null 2>&1; then
 fi
 echo -e "  -> Copying the apu-telemetry.service unit config"
 sed "s|TELEMETRY_BIN_PATH|$BIN_PATH|g" apu-telemetry.service | sudo tee /etc/systemd/system/apu-telemetry.service > /dev/null
+
+# The config is the user's: install the default only when there is none, and
+# never overwrite it on updates. Unknown/invalid keys only produce warnings.
+CONFIG_PATH=/etc/bc250-telemetry.conf
+if [ ! -e "$CONFIG_PATH" ]; then
+    echo "  -> Installing the default configuration to $CONFIG_PATH"
+    sudo install -m 0644 config/bc250-telemetry.conf "$CONFIG_PATH"
+else
+    echo "  -> Keeping your existing $CONFIG_PATH"
+    # Only a config-aware binary understands --check-config; an older
+    # prebuilt one would ignore the flag and start running in the foreground.
+    if binary_has_feature apu_telemetry config_v1; then
+        apu_telemetry_check="$(./apu_telemetry --check-config --config="$CONFIG_PATH" 2>&1 | grep -v 'INFO' || true)"
+        [ -z "$apu_telemetry_check" ] || printf '     %s\n' "$apu_telemetry_check"
+    fi
+fi
 echo -e "${GREEN}✓ Done!${NC}\n"
 
+if [ "$COMPONENT_WEB" = 1 ]; then
 echo -e "${YELLOW}[STEP 5/7]${NC} Choosing the default dashboard..."
 # Priority order: --dashboard=... > env BC250_DEFAULT_DASHBOARD > whatever was
 # already set in a previously installed unit (so that running `./install.sh`
@@ -215,12 +295,16 @@ sed -e "s|TELEMETRY_USER|$CURRENT_USER|g" -e "s|TELEMETRY_WEB_DIR|$SCRIPT_DIR/we
     -e "s|TELEMETRY_DEFAULT_DASHBOARD|$CHOSEN_DASHBOARD|g" \
     web/bc250-web.service | sudo tee /etc/systemd/system/bc250-web.service > /dev/null
 echo -e "${GREEN}✓ Done!${NC}\n"
+else
+    CHOSEN_DASHBOARD=""
+    echo "  -> Preserving existing web service, dashboard config, and web files"
+fi
 
 # enable by itself doesn't restart an already-active service (it only enables
 # autostart) — so for a freshly built binary/unit we explicitly restart it,
 # otherwise the old service would keep running with the old code in memory.
 echo -e "${YELLOW}[STEP 7/7]${NC} Starting the services..."
-if [ "$MEMORY_ENABLED" = "1" ]; then
+if [ "$COMPONENT_MEMORY" = 1 ] && [ "$MEMORY_ENABLED" = "1" ]; then
     echo "  -> Installing the separate SMU patch and memory collector service"
     # Stop before replacing Python modules. The per-boot operation guard lives
     # in /run and is deliberately preserved across updates and reinstalls.
@@ -235,9 +319,16 @@ if [ "$MEMORY_ENABLED" = "1" ]; then
     if command -v restorecon >/dev/null 2>&1; then
         sudo restorecon -R /opt/bc250-memory || true
     fi
-elif [ -f /etc/systemd/system/bc250-memory.service ]; then
-    echo "  -> Disabling and removing the previously installed memory collector"
-    sudo systemctl disable --now bc250-memory.service
+elif [ -f /etc/systemd/system/bc250-memory.service ] &&
+     { [ "${MEMORY_OPT_OUT:-0}" = 1 ] || [ "$MEMORY_KERNEL_OWNS" = 1 ]; }; then
+    # The kernel-driver case applies regardless of --components: running
+    # both is a hardware hazard (SMU queue 3 collisions).
+    if [ "$MEMORY_KERNEL_OWNS" = 1 ]; then
+        echo "  -> Removing bc250-memory.service: the kernel bc250_memory driver replaces it"
+    else
+        echo "  -> Memory monitoring declined: removing the previously installed collector"
+    fi
+    sudo systemctl disable --now bc250-memory.service || true
     sudo rm -f /etc/systemd/system/bc250-memory.service
     # Opting out removes the on-disk SMU-patching code, not just the unit.
     sudo rm -rf /opt/bc250-memory
@@ -247,12 +338,17 @@ elif [ -f /etc/systemd/system/bc250-memory.service ]; then
 fi
 echo -e "  -> Reloading systemd, enabling autostart, and (re)starting the services"
 sudo systemctl daemon-reload
-if ! sudo systemctl enable apu-telemetry.service bc250-web.service; then
-    echo -e "${YELLOW}⚠ Failed to enable one or both services for autostart — they may not survive a reboot. Continuing anyway.${NC}"
+if ! sudo systemctl enable apu-telemetry.service; then
+    echo -e "${YELLOW}⚠ Failed to enable the daemon service for autostart — it may not survive a reboot. Continuing anyway.${NC}"
 fi
 sudo systemctl restart apu-telemetry.service
-sudo systemctl restart bc250-web.service
-if [ "$MEMORY_ENABLED" = "1" ]; then
+if [ "$COMPONENT_WEB" = 1 ]; then
+    if ! sudo systemctl enable bc250-web.service; then
+        echo -e "${YELLOW}⚠ Failed to enable bc250-web.service for autostart — it may not survive a reboot. Continuing anyway.${NC}"
+    fi
+    sudo systemctl restart bc250-web.service
+fi
+if [ "$COMPONENT_MEMORY" = 1 ] && [ "$MEMORY_ENABLED" = "1" ]; then
     sudo systemctl enable bc250-memory.service
     sudo systemctl restart bc250-memory.service
 fi
@@ -268,17 +364,17 @@ if ! systemctl is-active --quiet apu-telemetry.service; then
     systemctl status apu-telemetry.service --no-pager -l | tail -n 8
     SERVICES_OK=0
 fi
-if ! systemctl is-active --quiet bc250-web.service; then
+if [ "$COMPONENT_WEB" = 1 ] && ! systemctl is-active --quiet bc250-web.service; then
     echo -e "${RED}✗ bc250-web.service did not stay running:${NC}"
     systemctl status bc250-web.service --no-pager -l | tail -n 8
     SERVICES_OK=0
 fi
-if [ "$MEMORY_ENABLED" = "1" ] && ! systemctl is-active --quiet bc250-memory.service; then
+if [ "$COMPONENT_MEMORY" = 1 ] && [ "$MEMORY_ENABLED" = "1" ] && ! systemctl is-active --quiet bc250-memory.service; then
     echo -e "${RED}✗ bc250-memory.service did not stay running; check journalctl -u bc250-memory.${NC}"
     sudo journalctl -u bc250-memory.service -b -n 30 --no-pager || true
     SERVICES_OK=0
 fi
-if [ "$MEMORY_ENABLED" = "1" ] && systemctl is-active --quiet bc250-memory.service; then
+if [ "$COMPONENT_MEMORY" = 1 ] && [ "$MEMORY_ENABLED" = "1" ] && systemctl is-active --quiet bc250-memory.service; then
     echo "Memory service started; patching/first sample may still be in progress."
     echo "Check /api/telemetry -> memory.status and journalctl -u bc250-memory."
 fi
@@ -305,6 +401,7 @@ else
     echo -e "The animated board diagram (v2) is available at http://localhost:8090/v2/"
 fi
 echo -e "To change the choice later: ${YELLOW}sudo ./install.sh --dashboard=v1${NC} (or v2)"
+echo -e "Settings (sensor sources, polling): ${YELLOW}/etc/bc250-telemetry.conf${NC} — apply with ${YELLOW}sudo systemctl reload apu-telemetry${NC}"
 echo -e "To check the status, you can use:"
 echo -e "  systemctl status apu-telemetry"
 echo -e "  systemctl status bc250-web.service"

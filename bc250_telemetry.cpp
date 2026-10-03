@@ -1,460 +1,681 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/ioctl.h>
-#include <linux/i2c.h>
-#include <linux/i2c-dev.h>
+#include <array>
+#include <cerrno>
+#include <cmath>
+#include <csignal>
+#include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cerrno>
-#include <cmath>
-#include <csignal>
-#include <dirent.h>
 #include <string>
 #include <sys/stat.h>
-#include <cstdarg>
+#include <time.h>
+#include <unistd.h>
+#include <vector>
+
+#include "daemon_log.h"
 #include "memory_telemetry.h"
+#include "sysfs_util.h"
+#include "telemetry_config.h"
+#include "vrm_backend.h"
 
 // Installer metadata, deliberately emitted even under -O2. Ordinary string
 // literals (such as the snapshot path) may be split into immediate stores.
 // Inspecting this marker never executes an older daemon or touches hardware.
+// install.sh greps for the memory_snapshot_v1 prefix; keep it first.
 static const char BC250_FEATURES[] __attribute__((used)) =
-    "BC250_TELEMETRY_FEATURES=memory_snapshot_v1";
-
-#define PMBUS_ADDR 0x60
-#define PMBUS_PAGE       0x00
-#define PMBUS_READ_VIN   0x88
-#define PMBUS_READ_VOUT  0x8B
-#define PMBUS_READ_IOUT  0x8C
-#define PMBUS_READ_TEMP1 0x8D
-#define PMBUS_STATUS_IOUT 0x7B
-#define PMBUS_STATUS_TEMP 0x7D
+    "BC250_TELEMETRY_FEATURES=memory_snapshot_v1,vrm_hwmon_v1,memory_hwmon_v1,config_v1";
 
 using namespace std;
+using daemon_log::log;
+using telemetry_config::Config;
+using telemetry_config::MemorySource;
+using telemetry_config::VrmSource;
+namespace L = daemon_log;
 
-// Main loop interval.
-static constexpr useconds_t LOOP_INTERVAL_US = 700000; // 700 ms
-// NVMe heats up and cools down slowly, so we poll it less often than the other sensors:
-// NVME_POLL_CYCLES cycles of LOOP_INTERVAL_US ≈ 9.8 seconds.
-static constexpr int NVME_POLL_CYCLES = 14;
+static constexpr const char *DEFAULT_CONFIG_PATH = "/etc/bc250-telemetry.conf";
 
-// Divisors for converting raw 16-bit PMBus words into physical units.
-// The chip's format (linear11 vs. direct) isn't documented anywhere — see
-// "Open questions" in CLAUDE.md. The coefficients below were found empirically,
-// by comparing readings against a multimeter on real hardware.
-static constexpr float VIN_DIVISOR  = 100.0f;   // raw / 100  -> volts (10 mV step)
-static constexpr float VOUT_DIVISOR = 1000.0f;  // raw / 1000 -> volts (1 mV step)
-static constexpr float IOUT_DIVISOR = 10.0f;    // raw / 10   -> amps (100 mA step)
-static constexpr uint16_t TEMP_MASK = 0x07FF;   // low 11 bits of the READ_TEMP1 register are the value;
-                                                 // the upper bits aren't used in this PMIC's readings
-// Guards against I2C bus glitches: >250 A is obviously bus noise, not a real current reading.
-static constexpr int32_t IOUT_GLITCH_THRESHOLD_RAW = 2500;
+// Hardware/driver re-detection and NVMe polling period. Re-detection reads
+// only sysfs (no I2C) unless a raw PMBus probe is actually due.
+static constexpr double REFRESH_PERIOD_S = 10.0;
+
+// bc250-memory.service output; only the test suite points this elsewhere.
+static string g_memory_snapshot = "/run/bc250-memory/telemetry";
+
+static volatile sig_atomic_t g_running = 1;
+static volatile sig_atomic_t g_reload = 0;
+
+static void handle_shutdown_signal(int) { g_running = 0; }
+static void handle_reload_signal(int) { g_reload = 1; }
+
+// ------------------------------------------------------------ VRM source ---
+
+class VrmManager {
+public:
+    void configure(const Config &cfg, int bus_override) {
+        pm_.close_bus();
+        hw_ = vrm::HwmonVrm();
+        cfg_ = cfg;
+        bus_override_ = bus_override;
+        kind_ = Kind::None;
+        probe_rounds_ = 0;
+        gave_up_ = false;
+        next_probe_at_ = 0;
+        failures_ = 0;
+        next_read_at_ = 0;
+        status_.clear();
+    }
+
+    void refresh(double now) {
+        if (cfg_.vrm_source == VrmSource::Off) {
+            pm_.close_bus();
+            kind_ = Kind::Off;
+            set_status(L::Info, "VRM telemetry disabled (vrm_source = off)");
+            return;
+        }
+
+        // 1. Kernel driver: preferred in auto, required in hwmon mode.
+        const string dir = sysfs::find_hwmon("bc250_vrm");
+        if (cfg_.vrm_source != VrmSource::Pmbus && !dir.empty()) {
+            if (kind_ != Kind::Hwmon || hw_.dir() != dir) {
+                pm_.close_bus();
+                if (hw_.bind(dir)) {
+                    kind_ = Kind::Hwmon;
+                    failures_ = 0;
+                    next_read_at_ = 0;
+                    set_status(L::Info, "VRM source: kernel bc250_vrm driver (" + dir +
+                                        "); no direct I2C access");
+                } else {
+                    kind_ = Kind::None;
+                    set_status(L::Warning, "bc250_vrm device " + dir +
+                                           " lacks the expected sensor channels; VRM telemetry unavailable");
+                }
+            }
+            return;
+        }
+        if (kind_ == Kind::Hwmon) {
+            kind_ = Kind::None;
+            hw_ = vrm::HwmonVrm();
+        }
+        if (cfg_.vrm_source == VrmSource::Hwmon) {
+            set_status(L::Info, "waiting for the bc250_vrm kernel driver (vrm_source = hwmon)");
+            return;
+        }
+
+        // 2. Raw PMBus — only while no kernel driver owns the PMIC address.
+        vector<int> buses;
+        if (bus_override_ >= 0) {
+            buses.push_back(bus_override_);
+        } else {
+            for (const auto &a : vrm::pmbus_adapters()) buses.push_back(a.bus);
+        }
+        for (int bus : buses) {
+            const string driver = vrm::bound_driver(bus);
+            if (driver.empty()) continue;
+            pm_.close_bus();
+            kind_ = Kind::None;
+            set_status(L::Warning, "I2C device " + to_string(bus) + "-0060 is owned by kernel driver '" +
+                                   driver + "' without a usable bc250_vrm hwmon device; "
+                                   "raw PMBus access disabled to avoid colliding with it");
+            return;
+        }
+        if (kind_ == Kind::Pmbus && pm_.is_open()) return;
+        if (gave_up_ || now < next_probe_at_) return;
+        if (buses.empty()) {
+            set_status(L::Info, "no AMD SMBus (PIIX4) adapter found; VRM telemetry unavailable "
+                                "(set i2c_bus in " + string(DEFAULT_CONFIG_PATH) + " to force one)");
+            next_probe_at_ = now + 60;
+            return;
+        }
+
+        switch (pm_.discover(buses)) {
+        case vrm::Pmbus::Probe::Found:
+            kind_ = Kind::Pmbus;
+            probe_rounds_ = 0;
+            failures_ = 0;
+            set_status(L::Info, "VRM source: raw PMBus on /dev/i2c-" + to_string(pm_.bus()) +
+                                (bus_override_ >= 0 ? " (configured bus)" : " (auto-detected)"));
+            break;
+        case vrm::Pmbus::Probe::NoAccess:
+            set_status(L::Warning, "cannot open /dev/i2c-* for the SMBus adapters "
+                                   "(is the i2c-dev module loaded?); retrying");
+            next_probe_at_ = now + 30;
+            break;
+        case vrm::Pmbus::Probe::NotFound: {
+            // Every probe that misses shows up in dmesg as "SMBus Timeout" /
+            // "Failed!" from i2c-piix4, so back off hard and eventually stop:
+            // a board without the SMBus hardware mod will never answer.
+            static constexpr int BACKOFF_S[] = {30, 60, 120, 300, 600};
+            static constexpr int MAX_ROUNDS = sizeof(BACKOFF_S) / sizeof(BACKOFF_S[0]) + 1;
+            ++probe_rounds_;
+            if (probe_rounds_ >= MAX_ROUNDS) {
+                gave_up_ = true;
+                set_status(L::Notice, "no VRM PMIC answered at 0x60 after " + to_string(MAX_ROUNDS) +
+                                      " attempts; stopped probing to keep the SMBus quiet. VRM telemetry "
+                                      "needs the SMBus hardware mod (see hardware.md). "
+                                      "Run 'systemctl reload apu-telemetry' to retry");
+            } else {
+                const int delay = BACKOFF_S[probe_rounds_ - 1];
+                next_probe_at_ = now + delay;
+                set_status(L::Info, "no VRM PMIC answered at 0x60 (attempt " + to_string(probe_rounds_) +
+                                    "); next attempt in " + to_string(delay) + " s");
+            }
+            break;
+        }
+        }
+    }
+
+    void read(vrm::Rail &cpu, vrm::Rail &gpu, double now) {
+        cpu = vrm::Rail();
+        gpu = vrm::Rail();
+        if (now < next_read_at_) return;
+        if (kind_ == Kind::Hwmon) {
+            if (hw_.read(cpu, gpu, now) == 0) {
+                on_failure(now, strerror(hw_.last_errno()));
+            } else {
+                on_success();
+            }
+        } else if (kind_ == Kind::Pmbus) {
+            cpu = pm_.read(0);
+            gpu = pm_.read(1);
+            if (cpu.valid || gpu.valid) {
+                on_success();
+            } else if (on_failure(now, "no valid PMBus response")) {
+                // Bus/PMIC went away: drop it and rediscover with back-off
+                // rather than retrying the same dead bus every cycle.
+                pm_.close_bus();
+                kind_ = Kind::None;
+                next_read_at_ = 0;
+                next_probe_at_ = now + 30;
+            }
+        }
+    }
+
+    const char *source_name() const {
+        switch (kind_) {
+        case Kind::Hwmon: return "hwmon";
+        case Kind::Pmbus: return "pmbus";
+        case Kind::Off: return "off";
+        default: return "none";
+        }
+    }
+
+private:
+    enum class Kind { None, Hwmon, Pmbus, Off };
+    static constexpr int FAIL_LIMIT = 5;          // consecutive fully failed cycles
+    static constexpr double FAILED_POLL_S = 10.0; // first poll period while failing...
+    static constexpr double FAILED_POLL_MAX_S = 300.0; // ...doubling up to this
+
+    void set_status(L::Level level, const string &message) {
+        if (message == status_) return;
+        status_ = message;
+        log(level, "%s", message.c_str());
+    }
+
+    // Returns true when the failure limit was just reached.
+    bool on_failure(double now, const char *why) {
+        ++failures_;
+        // Every failed transfer is an "SMBus Timeout" line in dmesg, so a
+        // dead PMIC gets polled less and less often.
+        if (failures_ >= FAIL_LIMIT)
+            next_read_at_ = now + min(FAILED_POLL_MAX_S, FAILED_POLL_S * (1 << min(failures_ - FAIL_LIMIT, 5)));
+        if (failures_ == FAIL_LIMIT) {
+            log(L::Warning, "VRM reads failing (%s); backing off (%.0f s, up to %.0f s) until they recover",
+                why, FAILED_POLL_S, FAILED_POLL_MAX_S);
+            return true;
+        }
+        return false;
+    }
+
+    void on_success() {
+        if (failures_ >= FAIL_LIMIT) log(L::Notice, "VRM readings recovered");
+        failures_ = 0;
+        next_read_at_ = 0;
+    }
+
+    Config cfg_;
+    int bus_override_ = -1;
+    Kind kind_ = Kind::None;
+    vrm::HwmonVrm hw_;
+    vrm::Pmbus pm_;
+    int probe_rounds_ = 0;
+    bool gave_up_ = false;
+    double next_probe_at_ = 0;
+    int failures_ = 0;
+    double next_read_at_ = 0;
+    string status_;
+};
+
+// --------------------------------------------------------- GDDR6 source ---
+
+class MemoryManager {
+public:
+    void configure(const Config &cfg) {
+        cfg_ = cfg;
+        kind_ = Kind::None;
+        dir_.clear();
+        status_.clear();
+        have_sample_ = false;
+        error_.clear();
+        next_read_at_ = 0;
+        failures_ = 0;
+        conflict_warned_ = false;
+    }
+
+    void refresh(double /*now*/) {
+        if (cfg_.memory_source == MemorySource::Off) {
+            kind_ = Kind::Off;
+            set_status(L::Info, "GDDR6 telemetry disabled (memory_source = off)");
+            return;
+        }
+        const string dir = sysfs::find_hwmon("bc250_memory");
+        // The kernel driver and bc250-memory.service both drive SMU message
+        // queue 3; running them together wedges the SMU (fans ramp up).
+        if (!dir.empty() && !conflict_warned_ && collector_active()) {
+            conflict_warned_ = true;
+            log(L::Warning, "both the bc250_memory kernel driver and bc250-memory.service are active; "
+                            "they collide on SMU queue 3. Disable one of them, e.g. "
+                            "'sudo systemctl disable --now bc250-memory.service'");
+        }
+        if (cfg_.memory_source != MemorySource::Collector && !dir.empty()) {
+            if (kind_ != Kind::Hwmon || dir_ != dir) bind(dir);
+            return;
+        }
+        if (cfg_.memory_source == MemorySource::Hwmon) {
+            kind_ = Kind::None;
+            set_status(L::Info, "waiting for the bc250_memory kernel driver (memory_source = hwmon)");
+            return;
+        }
+        kind_ = Kind::Collector;
+        set_status(L::Info, "GDDR6 source: bc250-memory.service snapshot (if installed)");
+    }
+
+    string json(double now) {
+        switch (kind_) {
+        case Kind::Collector: return memory_telemetry::read_json(g_memory_snapshot);
+        case Kind::Hwmon: return hwmon_json(now);
+        default: return memory_telemetry::unavailable("unavailable");
+        }
+    }
+
+    const char *source_name() const {
+        switch (kind_) {
+        case Kind::Hwmon: return "hwmon";
+        case Kind::Collector: return "collector";
+        case Kind::Off: return "off";
+        default: return "none";
+        }
+    }
+
+private:
+    enum class Kind { None, Hwmon, Collector, Off };
+    // Keep showing the previous sample through a short read hiccup, but
+    // never longer than the dashboards' own 15 s staleness limit.
+    static constexpr double HOLD_S = 10.0;
+
+    void bind(const string &dir) {
+        const auto labels = sysfs::hwmon_labels(dir);
+        for (int i = 0; i < 8; ++i) {
+            const auto it = labels.find("VRAM Chip " + to_string(i));
+            // bc250_memory 1.0.0: temp1 hotspot, temp2 average, temp3..10 chips.
+            chip_paths_[i] = it != labels.end() ? it->second : dir + "/temp" + to_string(i + 3) + "_input";
+        }
+        kind_ = Kind::Hwmon;
+        dir_ = dir;
+        have_sample_ = false;
+        next_read_at_ = 0;
+        failures_ = 0;
+        set_status(L::Info, "GDDR6 source: kernel bc250_memory driver (" + dir + "), every " +
+                            to_string(cfg_.memory_poll_interval_ms) + " ms");
+    }
+
+    // Each poll costs eight SMU round-trips inside the driver (it caches for
+    // 1 s), so the memory poll runs on its own, slower clock.
+    string hwmon_json(double now) {
+        if (now >= next_read_at_) {
+            std::array<int, 8> chips{};
+            bool ok = true;
+            int err = 0;
+            for (int i = 0; i < 8 && ok; ++i) {
+                long mc;
+                // Stop at the first failure: every further read would just
+                // wait out another SMU timeout inside the driver.
+                if (!sysfs::read_long(chip_paths_[i], mc)) { ok = false; err = errno; break; }
+                chips[i] = static_cast<int>(lround(mc / 1000.0));
+            }
+            const double interval = cfg_.memory_poll_interval_ms / 1000.0;
+            if (ok) {
+                if (failures_ >= 3) log(L::Notice, "GDDR6 readings recovered");
+                failures_ = 0;
+                chips_ = chips;
+                sampled_at_ = now;
+                have_sample_ = true;
+                next_read_at_ = now + interval;
+            } else {
+                ++failures_;
+                error_ = string("bc250_memory read failed: ") + strerror(err);
+                if (failures_ == 3) log(L::Warning, "%s; backing off", error_.c_str());
+                next_read_at_ = now + min(60.0, interval * (1 << min(failures_, 5)));
+            }
+        }
+        if (have_sample_ && now - sampled_at_ <= HOLD_S)
+            return memory_telemetry::from_chips(chips_, lround((now - sampled_at_) * 1000));
+        if (!error_.empty()) return memory_telemetry::unavailable("error", error_);
+        return memory_telemetry::unavailable("starting");
+    }
+
+    static bool collector_active() {
+        return memory_telemetry::read_json(g_memory_snapshot).rfind("{\"valid\":true", 0) == 0;
+    }
+
+    void set_status(L::Level level, const string &message) {
+        if (message == status_) return;
+        status_ = message;
+        log(level, "%s", message.c_str());
+    }
+
+    Config cfg_;
+    Kind kind_ = Kind::None;
+    string dir_;
+    array<string, 8> chip_paths_;
+    array<int, 8> chips_{};
+    bool have_sample_ = false;
+    double sampled_at_ = 0;
+    string error_;
+    double next_read_at_ = 0;
+    int failures_ = 0;
+    bool conflict_warned_ = false;
+    string status_;
+};
+
+// ------------------------------------------------- plain hwmon devices ---
+
+// Finds a hwmon directory by name and keeps it fresh: hwmonN numbers are
+// reassigned when a module reloads, so a cached path is re-validated on every
+// refresh instead of being trusted forever.
+struct HwmonDevice {
+    const char *name;
+    string dir;
+    void refresh() {
+        if (!dir.empty() && sysfs::read_text(dir + "/name") == name) return;
+        const string found = sysfs::find_hwmon(name);
+        if (found != dir && !found.empty()) log(L::Info, "found %s: %s", name, found.c_str());
+        dir = found;
+    }
+    long read(const char *attr) const {
+        long v;
+        if (dir.empty() || !sysfs::read_long(dir + "/" + attr, v)) return -1;
+        return v;
+    }
+};
+
+// ----------------------------------------------------- /run/bc250 files ---
 
 // External sensor files under /run (tmpfs): vanish on reboot, cheap to rewrite.
 // CoolerControl wants a sysfs integer (millidegrees C). MangoHud has no file
 // sensor — it cats a human-readable string via custom_text + exec.
-// External sensor files under /run (tmpfs): PMBus-only metrics that have no
-// hwmon driver. Die temps, clocks, fans, NVMe, NCT — use hwmon / MangoHud built-ins.
-static constexpr const char *SENSOR_DIR = "/run/bc250";
+static string g_sensor_dir = "/run/bc250";
 
-// Fault/warning bits within STATUS_IOUT (0x7B) and STATUS_TEMPERATURE (0x7D) —
-// latched by the PMIC itself when a rail crosses protection thresholds set by
-// the board vendor, independent of any threshold guessed in software.
-static constexpr uint8_t STATUS_IOUT_OC_FAULT   = 0x80;
-static constexpr uint8_t STATUS_IOUT_OC_WARNING = 0x20;
-static constexpr uint8_t STATUS_TEMP_OT_FAULT   = 0x80;
-static constexpr uint8_t STATUS_TEMP_OT_WARNING = 0x40;
-
-static volatile sig_atomic_t g_running = 1;
-
-void handle_shutdown_signal(int) {
-    g_running = 0;
-}
-
-// --- I2C functions ---
-int32_t i2c_smbus_access(int file, char read_write, uint8_t command, int size, union i2c_smbus_data *data) {
-    struct i2c_smbus_ioctl_data args;
-    args.read_write = read_write;
-    args.command = command;
-    args.size = size;
-    args.data = data;
-    return ioctl(file, I2C_SMBUS, &args);
-}
-
-int32_t i2c_smbus_write_byte_data(int file, uint8_t command, uint8_t value) {
-    union i2c_smbus_data data;
-    data.byte = value;
-    return i2c_smbus_access(file, I2C_SMBUS_WRITE, command, I2C_SMBUS_BYTE_DATA, &data);
-}
-
-int32_t i2c_smbus_read_word_data(int file, uint8_t command) {
-    union i2c_smbus_data data;
-    if (i2c_smbus_access(file, I2C_SMBUS_READ, command, I2C_SMBUS_WORD_DATA, &data)) return -1;
-    return 0x0FFFF & data.word;
-}
-
-int32_t i2c_smbus_read_byte_data(int file, uint8_t command) {
-    union i2c_smbus_data data;
-    if (i2c_smbus_access(file, I2C_SMBUS_READ, command, I2C_SMBUS_BYTE_DATA, &data)) return -1;
-    return 0xFF & data.byte;
-}
-
-struct Telemetry {
-    float vin, vout, iout, temp, pout;
-    bool valid;
-    bool iout_warning, iout_fault;
-    bool temp_warning, temp_fault;
+static const char *const SENSOR_FILES[] = {
+    "cpu_vrm_temp", "cpu_vrm_c", "gpu_vrm_temp", "gpu_vrm_c", "vin", "cpu_vout", "gpu_vout",
+    "cpu_iout", "gpu_iout", "cpu_pout", "gpu_pout", "total_power",
+    "memory_hotspot_temp", "memory_hotspot_c", "memory_avg_temp", "memory_avg_c",
 };
-
-Telemetry read_telemetry(int fd, uint8_t page) {
-    Telemetry t = {0, 0, 0, 0, 0, false, false, false, false, false};
-    if (fd < 0) return t; // I2C isn't available right now (not connected yet, or dropped) — don't crash
-    i2c_smbus_write_byte_data(fd, PMBUS_PAGE, page);
-    usleep(5000);
-    int32_t vin_raw = i2c_smbus_read_word_data(fd, PMBUS_READ_VIN);
-    int32_t vout_raw = i2c_smbus_read_word_data(fd, PMBUS_READ_VOUT);
-    int32_t iout_raw = i2c_smbus_read_word_data(fd, PMBUS_READ_IOUT);
-    int32_t temp_raw = i2c_smbus_read_word_data(fd, PMBUS_READ_TEMP1);
-    if (vin_raw < 0 || vout_raw < 0 || iout_raw < 0 || temp_raw < 0) return t;
-    if ((vin_raw == 0 || vin_raw == 0xFFFF) && (vout_raw == 0 || vout_raw == 0xFFFF)) return t;
-    if (iout_raw > IOUT_GLITCH_THRESHOLD_RAW) return t;
-
-    t.valid = true;
-    t.vin = vin_raw / VIN_DIVISOR;
-    t.vout = vout_raw / VOUT_DIVISOR;
-    t.iout = iout_raw / IOUT_DIVISOR;
-    t.temp = (float)(temp_raw & TEMP_MASK);
-    t.pout = t.vout * t.iout;
-
-    // Hardware fault/warning bits, latched by the PMIC's own protection
-    // comparators — a missing read (-1) just leaves the flags false.
-    int32_t status_iout_raw = i2c_smbus_read_byte_data(fd, PMBUS_STATUS_IOUT);
-    int32_t status_temp_raw = i2c_smbus_read_byte_data(fd, PMBUS_STATUS_TEMP);
-    t.iout_warning = (status_iout_raw >= 0) && (status_iout_raw & STATUS_IOUT_OC_WARNING);
-    t.iout_fault   = (status_iout_raw >= 0) && (status_iout_raw & STATUS_IOUT_OC_FAULT);
-    t.temp_warning = (status_temp_raw >= 0) && (status_temp_raw & STATUS_TEMP_OT_WARNING);
-    t.temp_fault   = (status_temp_raw >= 0) && (status_temp_raw & STATUS_TEMP_OT_FAULT);
-
-    return t;
-}
-
-// Tries to open the given I2C device and check that the BC-250 PMIC actually
-// answers on it (PMBUS_ADDR is a hardware address and is stable across
-// distros — unlike the /dev/i2c-N bus number).
-bool try_open_pmbus(const string &path, int &out_fd) {
-    int fd = open(path.c_str(), O_RDWR);
-    if (fd < 0) return false;
-
-    if (ioctl(fd, I2C_SLAVE, PMBUS_ADDR) < 0) {
-        close(fd);
-        return false;
-    }
-
-    i2c_smbus_write_byte_data(fd, PMBUS_PAGE, 0);
-    usleep(5000);
-    int32_t probe = i2c_smbus_read_word_data(fd, PMBUS_READ_VOUT);
-    if (probe <= 0 || probe == 0xFFFF) {
-        close(fd);
-        return false;
-    }
-
-    out_fd = fd;
-    return true;
-}
-
-// Auto-detects the I2C bus the PMIC (0x60) is on. The bus number differs
-// across Bazzite/SteamOS/CachyOS depending on kernel version and module load
-// order, so it can't be hardcoded. bus_override (--bus / BC250_I2C_BUS) lets
-// you skip the scan and use a specific bus instead.
-int open_pmbus_device(int bus_override) {
-    int fd = -1;
-
-    if (bus_override >= 0) {
-        string path = "/dev/i2c-" + to_string(bus_override);
-        if (try_open_pmbus(path, fd)) {
-            fprintf(stderr, "[INFO] PMBus found on %s (manually specified)\n", path.c_str());
-            return fd;
-        }
-        fprintf(stderr, "[ERROR] On the specified bus %s, the PMBus device (address 0x%02X) isn't responding: %s\n",
-                path.c_str(), PMBUS_ADDR, strerror(errno));
-        return -1;
-    }
-
-    DIR *dir = opendir("/dev");
-    if (dir == nullptr) {
-        fprintf(stderr, "[ERROR] Failed to open /dev: %s\n", strerror(errno));
-        return -1;
-    }
-
-    struct dirent *ent;
-    while ((ent = readdir(dir)) != nullptr) {
-        string name = ent->d_name;
-        if (name.rfind("i2c-", 0) != 0) continue;
-
-        string path = "/dev/" + name;
-        if (try_open_pmbus(path, fd)) {
-            fprintf(stderr, "[INFO] PMBus auto-detected on %s\n", path.c_str());
-            closedir(dir);
-            return fd;
-        }
-    }
-    closedir(dir);
-
-    fprintf(stderr,
-            "[ERROR] No I2C bus responded on address 0x%02X (BC-250 PMIC). "
-            "Specify the bus manually with --bus N or the BC250_I2C_BUS env var.\n",
-            PMBUS_ADDR);
-    return -1;
-}
-
-// Parses --bus N / --bus=N from the command-line args. Returns -1 if the
-// flag wasn't given (main() then falls back to checking BC250_I2C_BUS).
-int parse_bus_arg(int argc, char **argv) {
-    for (int i = 1; i < argc; ++i) {
-        string arg = argv[i];
-        if (arg == "--bus" && i + 1 < argc) {
-            return atoi(argv[++i]);
-        }
-        if (arg.rfind("--bus=", 0) == 0) {
-            return atoi(arg.substr(6).c_str());
-        }
-    }
-    return -1;
-}
-
-// --- Sysfs functions ---
-string get_hwmon_dir(const string& target_name) {
-    DIR *dir;
-    struct dirent *ent;
-    if ((dir = opendir("/sys/class/hwmon/")) != NULL) {
-        while ((ent = readdir(dir)) != NULL) {
-            string dirname = ent->d_name;
-            if (dirname.find("hwmon") != string::npos) {
-                string name_path = "/sys/class/hwmon/" + dirname + "/name";
-                ifstream name_file(name_path);
-                if (name_file.is_open()) {
-                    string name;
-                    name_file >> name;
-                    if (name == target_name) {
-                        closedir(dir);
-                        return "/sys/class/hwmon/" + dirname;
-                    }
-                }
-            }
-        }
-        closedir(dir);
-    }
-    return "";
-}
 
 // Atomic replace of a small /run file. Skipped entirely when the reading isn't
 // valid so CoolerControl / MangoHud keep the last good value instead of 0 °C.
-void write_run_file(const char *path, const string &contents) {
-    string tmp = string(path) + ".tmp";
+static void write_run_file(const string &path, const string &contents) {
+    const string tmp = path + ".tmp";
     ofstream file(tmp);
     if (!file.is_open()) return;
     file << contents;
     file.close();
-    if (rename(tmp.c_str(), path) != 0) {
-        unlink(tmp.c_str());
-    }
+    if (rename(tmp.c_str(), path.c_str()) != 0) unlink(tmp.c_str());
 }
 
-void write_sensor(const char *name, bool valid, const char *fmt, ...) {
+static void write_sensor(const char *name, bool valid, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+static void write_sensor(const char *name, bool valid, const char *fmt, ...) {
     if (!valid) return;
-
-    char path[192];
     char buf[64];
-    snprintf(path, sizeof(path), "%s/%s", SENSOR_DIR, name);
-
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    write_run_file(path, buf);
+    write_run_file(g_sensor_dir + "/" + name, buf);
 }
 
-void write_temp_pair(const char *cc_name, const char *mh_name, float temp_c, bool valid) {
+static void write_temp_pair(const char *cc_name, const char *mh_name, float temp_c, bool valid) {
     if (!valid || temp_c < 0.0f || temp_c >= 250.0f) return;
-
     const long rounded = lroundf(temp_c);
     write_sensor(cc_name, true, "%ld\n", rounded * 1000);
     write_sensor(mh_name, true, "%ld\xC2\xB0" "C\n", rounded);
 }
 
-// Pulls one numeric field out of the JSON string memory_telemetry::read_json()
-// just built for us this cycle. Not a general JSON parser: the input is our
-// own just-generated, fixed-shape string, not the untrusted collector
-// snapshot, so a plain key search is safe. Returns NAN for "null" or a
-// missing key (i.e. memory data isn't currently valid).
-double json_number_field(const std::string &json, const char *key) {
-    const std::string needle = std::string("\"") + key + "\":";
+static void remove_sensor_files() {
+    for (const char *name : SENSOR_FILES) unlink((g_sensor_dir + "/" + name).c_str());
+}
+
+// Pulls one numeric field out of the JSON string memory_telemetry just built
+// for us this cycle. Not a general JSON parser: the input is our own
+// fixed-shape string, so a plain key search is safe. Returns NAN for "null"
+// or a missing key (i.e. memory data isn't currently valid).
+static double json_number_field(const string &json, const char *key) {
+    const string needle = string("\"") + key + "\":";
     size_t pos = json.find(needle);
-    if (pos == std::string::npos) return NAN;
+    if (pos == string::npos) return NAN;
     pos += needle.size();
     if (json.compare(pos, 4, "null") == 0) return NAN;
     try {
-        return std::stod(json.substr(pos));
+        return stod(json.substr(pos));
     } catch (...) {
         return NAN;
     }
 }
 
-long read_sysfs_long(const string& path) {
-    ifstream file(path);
-    if (file.is_open()) {
-        long val;
-        if (file >> val) return val;
-    }
-    return -1;
-}
-
 // Average frequency across all CPU cores, read from /proc/cpuinfo.
-long read_cpu_freq() {
+static long read_cpu_freq() {
     ifstream file("/proc/cpuinfo");
     if (!file.is_open()) return -1;
-
     string line;
     double sum = 0.0;
     long count = 0;
     while (getline(file, line)) {
-        if (line.rfind("cpu MHz", 0) == 0) {
-            size_t pos = line.find(':');
-            if (pos != string::npos) {
-                try {
-                    sum += std::stod(line.substr(pos + 1));
-                    ++count;
-                } catch (...) {
-                    // malformed cpuinfo line — skip it
-                }
-            }
+        if (line.rfind("cpu MHz", 0) != 0) continue;
+        const size_t pos = line.find(':');
+        if (pos == string::npos) continue;
+        try {
+            sum += stod(line.substr(pos + 1));
+            ++count;
+        } catch (...) {
+            // malformed cpuinfo line — skip it
         }
     }
     if (count == 0) return -1;
     return lround(sum / count);
 }
 
-int main(int argc, char **argv) {
-    signal(SIGTERM, handle_shutdown_signal);
-    signal(SIGINT, handle_shutdown_signal);
+static void write_rail(ofstream &file, const char *name, const vrm::Rail &r, bool last) {
+    file << "    \"" << name << "\": {\n";
+    file << "      \"valid\": " << (r.valid ? "true" : "false") << ",\n";
+    file << "      \"vin\": " << fixed << setprecision(2) << r.vin << ",\n";
+    file << "      \"vout\": " << fixed << setprecision(3) << r.vout << ",\n";
+    file << "      \"iout\": " << fixed << setprecision(1) << r.iout << ",\n";
+    file << "      \"pout\": " << fixed << setprecision(1) << r.pout << ",\n";
+    file << "      \"temp\": " << fixed << setprecision(1) << r.temp << ",\n";
+    file << "      \"iout_warning\": " << (r.iout_warning ? "true" : "false") << ",\n";
+    file << "      \"iout_fault\": " << (r.iout_fault ? "true" : "false") << ",\n";
+    file << "      \"temp_warning\": " << (r.temp_warning ? "true" : "false") << ",\n";
+    file << "      \"temp_fault\": " << (r.temp_fault ? "true" : "false") << "\n";
+    file << "    }" << (last ? "\n" : ",\n");
+}
 
-    int bus_override = parse_bus_arg(argc, argv);
-    if (bus_override < 0) {
-        const char *env_bus = getenv("BC250_I2C_BUS");
-        if (env_bus != nullptr) {
-            bus_override = atoi(env_bus);
-        }
-    }
+// ------------------------------------------------------------------ main ---
 
-    // A missing PMIC at startup isn't fatal: hwmon telemetry (frequencies,
-    // die temperatures, fans) doesn't depend on I2C and keeps working without
-    // it. The daemon carries on with fd=-1 and retries the connection every
-    // NVME_POLL_CYCLES cycles in the main loop below.
-    int fd = open_pmbus_device(bus_override);
+struct Options {
+    string config_path = DEFAULT_CONFIG_PATH;
+    int cli_bus = -1;
+    string cli_vrm_source;
+    bool check_config = false;
+    bool once = false;
+    string run_dir = "/run";
+};
 
-    string amdgpu_dir = get_hwmon_dir("amdgpu");
-    string k10temp_dir = get_hwmon_dir("k10temp");
-    string nct_dir = get_hwmon_dir("nct6686");
-    string nvme_dir = get_hwmon_dir("nvme");
-
-    cout << "[INFO] APU Telemetry Daemon started." << endl;
-    if (!amdgpu_dir.empty()) cout << "[INFO] Found AMDGPU: " << amdgpu_dir << endl;
-    if (!k10temp_dir.empty()) cout << "[INFO] Found k10temp: " << k10temp_dir << endl;
-    if (!nvme_dir.empty()) cout << "[INFO] Found NVMe: " << nvme_dir << endl;
-    if (mkdir(SENSOR_DIR, 0755) != 0 && errno != EEXIST) {
-        fprintf(stderr, "[ERROR] Failed to create %s: %s\n", SENSOR_DIR, strerror(errno));
-    }
-    cout << "[INFO] Writing data to /run/apu_telemetry.json" << endl;
-    cout << "[INFO] Writing PMBus-only sensors to " << SENSOR_DIR << endl;
-
-    int loop_counter = 0;
-    long nvme_temp_raw = -1;
-
-    while (g_running) {
-        // Roughly every NVME_POLL_CYCLES cycles, try to reconnect whatever's
-        // still missing: the I2C bus and any hwmon directory we haven't found
-        // yet. This covers a driver or controller that shows up after the
-        // daemon has already started (slow init at boot, a DKMS module
-        // loading late, etc.) — without it, that sensor would stay dead until
-        // the service was restarted by hand.
-        if (loop_counter % NVME_POLL_CYCLES == 0) {
-            if (fd < 0) fd = open_pmbus_device(bus_override);
-            if (amdgpu_dir.empty()) amdgpu_dir = get_hwmon_dir("amdgpu");
-            if (k10temp_dir.empty()) k10temp_dir = get_hwmon_dir("k10temp");
-            if (nct_dir.empty()) nct_dir = get_hwmon_dir("nct6686");
-            if (nvme_dir.empty()) nvme_dir = get_hwmon_dir("nvme");
-        }
-
-        Telemetry cpu = read_telemetry(fd, 0);
-        Telemetry gpu = read_telemetry(fd, 1);
-        bool total_power_valid = cpu.valid && gpu.valid;
-        float total_power = (cpu.valid ? cpu.pout : 0.0f) + (gpu.valid ? gpu.pout : 0.0f);
-
-        long k10_temp = -1, amd_sclk = -1, amd_ppt = -1, amd_edge = -1;
-        long nct_fan = -1, nct_pwm = -1;
-        long nct_t14 = -1, nct_t15 = -1;
-
-        if (!k10temp_dir.empty()) k10_temp = read_sysfs_long(k10temp_dir + "/temp1_input");
-        if (!amdgpu_dir.empty()) {
-            amd_sclk = read_sysfs_long(amdgpu_dir + "/freq1_input");
-            amd_ppt = read_sysfs_long(amdgpu_dir + "/power1_input");
-            amd_edge = read_sysfs_long(amdgpu_dir + "/temp1_input");
-        }
-        if (!nct_dir.empty()) {
-            nct_fan = read_sysfs_long(nct_dir + "/fan2_input");
-            nct_pwm = read_sysfs_long(nct_dir + "/pwm2"); // Value range 0-255
-            nct_t14 = read_sysfs_long(nct_dir + "/temp2_input");
-            nct_t15 = read_sysfs_long(nct_dir + "/temp3_input");
-        }
-
-        if (!nvme_dir.empty()) {
-            if (loop_counter % NVME_POLL_CYCLES == 0) {
-                nvme_temp_raw = read_sysfs_long(nvme_dir + "/temp1_input");
+static bool parse_options(int argc, char **argv, Options &o) {
+    auto value = [&](int &i, const string &arg, const char *flag, string &out) {
+        const string eq = string(flag) + "=";
+        if (arg == flag && i + 1 < argc) { out = argv[++i]; return true; }
+        if (arg.rfind(eq, 0) == 0) { out = arg.substr(eq.size()); return true; }
+        return false;
+    };
+    for (int i = 1; i < argc; ++i) {
+        const string arg = argv[i];
+        string v;
+        if (value(i, arg, "--config", v)) o.config_path = v;
+        else if (value(i, arg, "--bus", v)) {
+            if (!telemetry_config::parse_int(v, 0, 255, o.cli_bus)) {
+                fprintf(stderr, "--bus expects a bus number 0..255\n");
+                return false;
             }
         }
+        else if (value(i, arg, "--vrm-source", v)) o.cli_vrm_source = v;
+        // Test-only: run against a synthetic sysfs tree / output directory.
+        else if (value(i, arg, "--sysfs-root", v)) sysfs::root() = v;
+        else if (value(i, arg, "--run-dir", v)) o.run_dir = v;
+        else if (value(i, arg, "--memory-snapshot", v)) g_memory_snapshot = v;
+        else if (arg == "--check-config") o.check_config = true;
+        else if (arg == "--once") o.once = true;
+        else {
+            fprintf(stderr, "unknown option '%s'\n"
+                            "usage: apu_telemetry [--config PATH] [--bus N] [--vrm-source auto|hwmon|pmbus|off]"
+                            " [--check-config]\n", arg.c_str());
+            return false;
+        }
+    }
+    return true;
+}
 
-        float sys_cpu_temp = (k10_temp >= 0) ? (k10_temp / 1000.0f) : -1.0f;
-        float sys_gpu_temp = (amd_edge >= 0) ? (amd_edge / 1000.0f) : -1.0f;
-        float sys_gpu_sclk = (amd_sclk >= 0) ? (amd_sclk / 1000000.0f) : -1.0f;
-        float sys_gpu_ppt  = (amd_ppt >= 0) ? (amd_ppt / 1000000.0f) : -1.0f;
-        float sys_nvme_temp = (nvme_temp_raw >= 0) ? (nvme_temp_raw / 1000.0f) : -1.0f;
-        float pwm_percent = (nct_pwm >= 0) ? (nct_pwm * 100.0f / 255.0f) : -1.0f;
-        float sys_t14 = (nct_t14 >= 0) ? (nct_t14 / 1000.0f) : -1.0f;
-        float sys_t15 = (nct_t15 >= 0) ? (nct_t15 / 1000.0f) : -1.0f;
-        long cpu_freq = read_cpu_freq();
+// Loads the config file and applies overrides. Precedence for the PMBus bus:
+// --bus > BC250_I2C_BUS (older installs set it in the unit) > i2c_bus.
+static Config load_config(const Options &o, int &bus_override, bool &clean) {
+    vector<string> warnings;
+    Config cfg = telemetry_config::load(o.config_path, warnings);
+    if (!o.cli_vrm_source.empty() &&
+        !telemetry_config::parse_vrm_source(o.cli_vrm_source, cfg.vrm_source))
+        warnings.push_back("--vrm-source: invalid value '" + o.cli_vrm_source + "' ignored");
+    bus_override = cfg.i2c_bus;
+    if (const char *env = getenv("BC250_I2C_BUS")) {
+        int bus;
+        if (telemetry_config::parse_int(env, 0, 255, bus)) bus_override = bus;
+        else warnings.push_back("BC250_I2C_BUS: invalid value ignored");
+    }
+    if (o.cli_bus >= 0) bus_override = o.cli_bus;
+    for (const auto &w : warnings) log(L::Warning, "config: %s", w.c_str());
+    clean = warnings.empty();
+    log(L::Info, "config: vrm_source=%s i2c_bus=%s memory_source=%s poll_interval_ms=%d "
+                 "memory_poll_interval_ms=%d run_files=%s",
+        telemetry_config::to_string(cfg.vrm_source),
+        bus_override >= 0 ? to_string(bus_override).c_str() : "auto",
+        telemetry_config::to_string(cfg.memory_source), cfg.poll_interval_ms,
+        cfg.memory_poll_interval_ms, cfg.run_files ? "on" : "off");
+    return cfg;
+}
 
-        ofstream file("/run/apu_telemetry.tmp");
+int main(int argc, char **argv) {
+    Options opts;
+    if (!parse_options(argc, argv, opts)) return 2;
+
+    int bus_override = -1;
+    bool config_clean = true;
+    Config cfg = load_config(opts, bus_override, config_clean);
+    if (opts.check_config) return config_clean ? 0 : 1;
+
+    // No SA_RESTART: a signal should cut the inter-cycle sleep short.
+    struct sigaction sa{};
+    sa.sa_handler = handle_shutdown_signal;
+    sigaction(SIGTERM, &sa, nullptr);
+    sigaction(SIGINT, &sa, nullptr);
+    sa.sa_handler = handle_reload_signal;
+    sigaction(SIGHUP, &sa, nullptr);
+
+    const string json_path = opts.run_dir + "/apu_telemetry.json";
+    const string json_tmp = opts.run_dir + "/apu_telemetry.tmp";
+    g_sensor_dir = opts.run_dir + "/bc250";
+    if (mkdir(g_sensor_dir.c_str(), 0755) != 0 && errno != EEXIST)
+        log(L::Error, "failed to create %s: %s", g_sensor_dir.c_str(), strerror(errno));
+
+    VrmManager vrm_source;
+    MemoryManager memory_source;
+    vrm_source.configure(cfg, bus_override);
+    memory_source.configure(cfg);
+    HwmonDevice amdgpu{"amdgpu", {}}, k10temp{"k10temp", {}}, nct{"nct6686", {}}, nvme{"nvme", {}};
+
+    log(L::Info, "APU telemetry daemon started; writing %s", json_path.c_str());
+
+    double next_refresh = 0;
+    long nvme_temp_raw = -1;
+    bool open_failure_logged = false;
+
+    while (g_running) {
+        if (g_reload) {
+            g_reload = 0;
+            log(L::Info, "reloading configuration (SIGHUP)");
+            cfg = load_config(opts, bus_override, config_clean);
+            vrm_source.configure(cfg, bus_override);
+            memory_source.configure(cfg);
+            if (!cfg.run_files) remove_sensor_files();
+            next_refresh = 0;
+        }
+
+        const double now = vrm::now_s();
+        if (now >= next_refresh) {
+            // Drivers may appear (DKMS module loading late, i2c-dev after
+            // us) or go away (rmmod) while we run; re-detect periodically.
+            next_refresh = now + REFRESH_PERIOD_S;
+            vrm_source.refresh(now);
+            memory_source.refresh(now);
+            amdgpu.refresh();
+            k10temp.refresh();
+            nct.refresh();
+            nvme.refresh();
+            // NVMe heats up and cools down slowly; poll it on the refresh clock.
+            nvme_temp_raw = nvme.read("temp1_input");
+        }
+
+        vrm::Rail cpu, gpu;
+        vrm_source.read(cpu, gpu, now);
+        const bool total_power_valid = cpu.valid && gpu.valid;
+        const float total_power = (cpu.valid ? cpu.pout : 0.0f) + (gpu.valid ? gpu.pout : 0.0f);
+
+        const long k10_temp = k10temp.read("temp1_input");
+        const long amd_sclk = amdgpu.read("freq1_input");
+        const long amd_ppt = amdgpu.read("power1_input");
+        const long amd_edge = amdgpu.read("temp1_input");
+        const long nct_fan = nct.read("fan2_input");
+        const long nct_pwm = nct.read("pwm2"); // 0-255
+        const long nct_t14 = nct.read("temp2_input");
+        const long nct_t15 = nct.read("temp3_input");
+
+        const float sys_cpu_temp = (k10_temp >= 0) ? (k10_temp / 1000.0f) : -1.0f;
+        const float sys_gpu_temp = (amd_edge >= 0) ? (amd_edge / 1000.0f) : -1.0f;
+        const float sys_gpu_sclk = (amd_sclk >= 0) ? (amd_sclk / 1000000.0f) : -1.0f;
+        const float sys_gpu_ppt = (amd_ppt >= 0) ? (amd_ppt / 1000000.0f) : -1.0f;
+        const float sys_nvme_temp = (nvme_temp_raw >= 0) ? (nvme_temp_raw / 1000.0f) : -1.0f;
+        const float pwm_percent = (nct_pwm >= 0) ? (nct_pwm * 100.0f / 255.0f) : -1.0f;
+        const float sys_t14 = (nct_t14 >= 0) ? (nct_t14 / 1000.0f) : -1.0f;
+        const float sys_t15 = (nct_t15 >= 0) ? (nct_t15 / 1000.0f) : -1.0f;
+        const long cpu_freq = read_cpu_freq();
+        const string memory_json = memory_source.json(now);
+
+        ofstream file(json_tmp);
         if (file.is_open()) {
+            open_failure_logged = false;
             file << "{\n";
             file << "  \"hardware\": {\n";
-            file << "    \"cpu\": {\n";
-            file << "      \"valid\": " << (cpu.valid ? "true" : "false") << ",\n";
-            file << "      \"vin\": " << fixed << setprecision(2) << cpu.vin << ",\n";
-            file << "      \"vout\": " << fixed << setprecision(3) << cpu.vout << ",\n";
-            file << "      \"iout\": " << fixed << setprecision(1) << cpu.iout << ",\n";
-            file << "      \"pout\": " << fixed << setprecision(1) << cpu.pout << ",\n";
-            file << "      \"temp\": " << fixed << setprecision(1) << cpu.temp << ",\n";
-            file << "      \"iout_warning\": " << (cpu.iout_warning ? "true" : "false") << ",\n";
-            file << "      \"iout_fault\": " << (cpu.iout_fault ? "true" : "false") << ",\n";
-            file << "      \"temp_warning\": " << (cpu.temp_warning ? "true" : "false") << ",\n";
-            file << "      \"temp_fault\": " << (cpu.temp_fault ? "true" : "false") << "\n";
-            file << "    },\n";
-            file << "    \"gpu\": {\n";
-            file << "      \"valid\": " << (gpu.valid ? "true" : "false") << ",\n";
-            file << "      \"vin\": " << fixed << setprecision(2) << gpu.vin << ",\n";
-            file << "      \"vout\": " << fixed << setprecision(3) << gpu.vout << ",\n";
-            file << "      \"iout\": " << fixed << setprecision(1) << gpu.iout << ",\n";
-            file << "      \"pout\": " << fixed << setprecision(1) << gpu.pout << ",\n";
-            file << "      \"temp\": " << fixed << setprecision(1) << gpu.temp << ",\n";
-            file << "      \"iout_warning\": " << (gpu.iout_warning ? "true" : "false") << ",\n";
-            file << "      \"iout_fault\": " << (gpu.iout_fault ? "true" : "false") << ",\n";
-            file << "      \"temp_warning\": " << (gpu.temp_warning ? "true" : "false") << ",\n";
-            file << "      \"temp_fault\": " << (gpu.temp_fault ? "true" : "false") << "\n";
-            file << "    },\n";
+            write_rail(file, "cpu", cpu, false);
+            write_rail(file, "gpu", gpu, false);
             file << "    \"total_power\": " << fixed << setprecision(1) << total_power << ",\n";
             file << "    \"total_power_valid\": " << (total_power_valid ? "true" : "false") << "\n";
             file << "  },\n";
@@ -472,41 +693,47 @@ int main(int argc, char **argv) {
             file << "    \"fan_rpm\": " << nct_fan << ",\n";
             file << "    \"fan_pwm_pct\": " << fixed << setprecision(0) << pwm_percent << "\n";
             file << "  },\n";
-            const std::string memory_json = memory_telemetry::read_json();
+            file << "  \"sources\": {\n";
+            file << "    \"vrm\": \"" << vrm_source.source_name() << "\",\n";
+            file << "    \"memory\": \"" << memory_source.source_name() << "\"\n";
+            file << "  },\n";
             file << "  \"memory\": " << memory_json << "\n";
             file << "}\n";
             file.close();
-            rename("/run/apu_telemetry.tmp", "/run/apu_telemetry.json");
+            rename(json_tmp.c_str(), json_path.c_str());
+        } else if (!open_failure_logged) {
+            open_failure_logged = true;
+            log(L::Error, "failed to open %s for writing: %s", json_tmp.c_str(), strerror(errno));
+        }
 
-            // GDDR6 for MangoHud (optional memory-temp service): just the two
-            // aggregate figures the web dashboards also lead with, not all
-            // eight chips — an in-game overlay has no room for a breakdown.
+        if (cfg.run_files) {
+            // GDDR6 for MangoHud/CoolerControl: just the two aggregate figures
+            // the dashboards also lead with, not all eight chips.
             const double mem_hotspot = json_number_field(memory_json, "hotspot_c");
             const double mem_average = json_number_field(memory_json, "average_c");
             write_temp_pair("memory_hotspot_temp", "memory_hotspot_c",
-                             static_cast<float>(mem_hotspot), std::isfinite(mem_hotspot));
+                            static_cast<float>(mem_hotspot), std::isfinite(mem_hotspot));
             write_temp_pair("memory_avg_temp", "memory_avg_c",
-                             static_cast<float>(mem_average), std::isfinite(mem_average));
-        } else {
-            fprintf(stderr, "[ERROR] Failed to open /run/apu_telemetry.tmp for writing: %s\n", strerror(errno));
+                            static_cast<float>(mem_average), std::isfinite(mem_average));
+            write_temp_pair("cpu_vrm_temp", "cpu_vrm_c", cpu.temp, cpu.valid);
+            write_temp_pair("gpu_vrm_temp", "gpu_vrm_c", gpu.temp, gpu.valid);
+            write_sensor("vin", cpu.valid || gpu.valid, "%.2fV\n", cpu.valid ? cpu.vin : gpu.vin);
+            write_sensor("cpu_vout", cpu.valid, "%.2fV\n", cpu.vout);
+            write_sensor("gpu_vout", gpu.valid, "%.2fV\n", gpu.vout);
+            write_sensor("cpu_iout", cpu.valid, "%.1fA\n", cpu.iout);
+            write_sensor("gpu_iout", gpu.valid, "%.1fA\n", gpu.iout);
+            write_sensor("cpu_pout", cpu.valid, "%.1fW\n", cpu.pout);
+            write_sensor("gpu_pout", gpu.valid, "%.1fW\n", gpu.pout);
+            write_sensor("total_power", cpu.valid || gpu.valid, "%.1fW\n", total_power);
         }
 
-        write_temp_pair("cpu_vrm_temp", "cpu_vrm_c", cpu.temp, cpu.valid);
-        write_temp_pair("gpu_vrm_temp", "gpu_vrm_c", gpu.temp, gpu.valid);
-        write_sensor("vin", cpu.valid || gpu.valid, "%.2fV\n", cpu.valid ? cpu.vin : gpu.vin);
-        write_sensor("cpu_vout", cpu.valid, "%.2fV\n", cpu.vout);
-        write_sensor("gpu_vout", gpu.valid, "%.2fV\n", gpu.vout);
-        write_sensor("cpu_iout", cpu.valid, "%.1fA\n", cpu.iout);
-        write_sensor("gpu_iout", gpu.valid, "%.1fA\n", gpu.iout);
-        write_sensor("cpu_pout", cpu.valid, "%.1fW\n", cpu.pout);
-        write_sensor("gpu_pout", gpu.valid, "%.1fW\n", gpu.pout);
-        write_sensor("total_power", cpu.valid || gpu.valid, "%.1fW\n", total_power);
-
-        loop_counter++;
-        usleep(LOOP_INTERVAL_US);
+        if (opts.once) break;
+        // nanosleep rather than usleep: intervals may exceed one second.
+        // A signal (stop/reload) interrupts it early, which is what we want.
+        timespec pause{cfg.poll_interval_ms / 1000, (cfg.poll_interval_ms % 1000) * 1000000L};
+        nanosleep(&pause, nullptr);
     }
 
-    fprintf(stderr, "[INFO] Shutdown signal received, stopping...\n");
-    if (fd >= 0) close(fd);
+    if (!opts.once) log(L::Info, "stopping");
     return 0;
 }

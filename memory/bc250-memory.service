@@ -1,6 +1,9 @@
 [Unit]
 Description=BC-250 SMU patch and GDDR6 temperature collector
 After=systemd-modules-load.service
+# Skip cleanly when the in-kernel bc250_memory driver is loaded: both use SMU
+# queue 3 and collide (SMU wedges, fans ramp up). The collector re-checks too.
+ConditionPathExists=!/sys/module/bc250_memory
 
 [Service]
 Type=simple

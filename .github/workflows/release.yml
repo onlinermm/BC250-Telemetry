@@ -18,11 +18,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Test memory integration without hardware
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_memory.py' -v
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_daemon.py' -v
           node tests/test_v2_memory.js
           python3 web/v2/build_markup.py --check
           bash tests/test_install_lib.sh
@@ -55,14 +56,14 @@ jobs:
         run: |
           BUNDLE=bc250-telemetry
           mkdir -p "dist/$BUNDLE/web"
-          cp apu_telemetry bc250_telemetry.cpp memory_telemetry.h install.sh install-lib.sh uninstall.sh apu-telemetry.service README.md LICENSE hardware.md "dist/$BUNDLE/"
+          cp apu_telemetry bc250_telemetry.cpp *.h install.sh install-lib.sh uninstall.sh apu-telemetry.service README.md LICENSE hardware.md "dist/$BUNDLE/"
           cp -r web/. "dist/$BUNDLE/web/"
-          cp -r images memory "dist/$BUNDLE/"
+          cp -r images memory config "dist/$BUNDLE/"
           chmod +x "dist/$BUNDLE/apu_telemetry" "dist/$BUNDLE/install.sh" "dist/$BUNDLE/uninstall.sh"
           tar -C dist -czf bc250-telemetry.tar.gz "$BUNDLE"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
@@ -71,7 +72,7 @@ jobs:
 
       - name: Upload workflow artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bc250-telemetry
           path: bc250-telemetry.tar.gz

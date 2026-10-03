@@ -50,6 +50,10 @@ sudo rm -f /etc/modules-load.d/99-sensors.conf /etc/modprobe.d/sensors.conf
 # We don't unload the module right now (rmmod) to avoid breaking anything while it's in use, it'll go away after a reboot
 echo -e "${GREEN}✓ Module configs removed!${NC}\n"
 
+if [ -e /etc/bc250-telemetry.conf ]; then
+    echo -e "Your settings in /etc/bc250-telemetry.conf were kept; delete the file by hand if you don't need them.\n"
+fi
+
 echo -e "${BLUE}=== Uninstall complete! ===${NC}"
 echo -e "Installed files and services have been removed."
 echo -e "If memory monitoring was used, reboot to reload firmware and clear its runtime guard."

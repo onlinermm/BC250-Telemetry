@@ -9,6 +9,16 @@ Unavailable/stale readings show dashes, and sensor saturation is marked with
 hotspots. Halos disappear when readings are unavailable or stale.
 The classic dashboard is unchanged.
 
+## Kernel driver alternative
+
+If the in-kernel `bc250_memory` driver (linux-cachyos-bc250, or
+[bc250-memory-dkms](https://github.com/Hexxeh/bc250-memory-dkms)) is loaded,
+this service is not needed and must not run: both use SMU queue 3 and
+collide. The service then skips itself (`ConditionPathExists=!/sys/module/bc250_memory`),
+the collector also exits — or stops polling — when it sees the module, and
+`install.sh` disables the service. `apu_telemetry` reads the driver's hwmon
+device instead (`memory_source = auto` in `/etc/bc250-telemetry.conf`).
+
 ## Installation
 
 Run `sudo ./install.sh` for a separate memory-monitoring question on the first
