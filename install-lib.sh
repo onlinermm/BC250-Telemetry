@@ -98,30 +98,45 @@ detect_active_sensor_driver() {
 # State of a BC-250 kernel sensor module (bc250_vrm / bc250_memory, from
 # linux-cachyos-bc250 or the Hexxeh *-dkms packages):
 #   loaded      - loaded right now
-#   autoload    - not loaded yet, but will be at boot (listed in
-#                 modules-load.d, or present and not blacklisted: both
-#                 modules autoload through their DMI alias)
-#   blacklisted - installed but disabled (linux-cachyos-bc250 ships
-#                 bc250_memory blacklisted, opt-in)
+#   autoload    - not loaded yet, but will be at boot: listed in modules-load.d,
+#                 or its modalias matches this machine's DMI data (and it is
+#                 not blacklisted)
+#   blacklisted - installed but disabled
+#   available   - installed, but nothing loads it: no modules-load.d entry and
+#                 no matching alias (newer linux-cachyos-bc250 builds ship
+#                 bc250_memory this way; it is opt-in)
 #   ""          - not installed for the running kernel
+# MODALIAS_FILE may be overridden (tests).
 kernel_module_state() {
     local mod="$1"
     if [ -d "/sys/module/$mod" ]; then
         echo loaded
-    elif grep -qsx "$mod" /etc/modules-load.d/*.conf /usr/lib/modules-load.d/*.conf; then
+        return
+    fi
+    if grep -qsx "$mod" /etc/modules-load.d/*.conf /usr/lib/modules-load.d/*.conf /run/modules-load.d/*.conf; then
         echo autoload
-    elif modinfo "$mod" >/dev/null 2>&1; then
-        # Capture first: --showconfig prints ~2000 lines, and under pipefail
-        # "modprobe | grep -q" reports failure when grep exits early (SIGPIPE).
-        local config
-        config="$(modprobe --showconfig 2>/dev/null || true)"
-        if grep -qx "blacklist $mod" <<<"$config"; then
-            echo blacklisted
-        else
-            echo autoload
-        fi
-    else
+        return
+    fi
+    if ! modinfo "$mod" >/dev/null 2>&1; then
         echo ""
+        return
+    fi
+    # Capture command output first: under pipefail, "cmd | grep -q" reports
+    # failure when grep exits early and cmd dies of SIGPIPE (the real
+    # "modprobe --showconfig" prints ~2000 lines).
+    local config resolved modalias
+    config="$(modprobe --showconfig 2>/dev/null || true)"
+    if grep -qx "blacklist $mod" <<<"$config"; then
+        echo blacklisted
+        return
+    fi
+    modalias="$(cat "${MODALIAS_FILE:-/sys/devices/virtual/dmi/id/modalias}" 2>/dev/null || true)"
+    resolved=""
+    if [ -n "$modalias" ]; then resolved="$(modprobe -R "$modalias" 2>/dev/null || true)"; fi
+    if grep -qx "$mod" <<<"$resolved"; then
+        echo autoload
+    else
+        echo available
     fi
 }
 

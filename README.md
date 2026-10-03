@@ -65,8 +65,9 @@ default `auto` settings nothing needs to be configured or blacklisted:
   send SMU queue 3 messages; together they wedge the SMU and the fans ramp
   up. The service now refuses to start (and stops) when the module is
   loaded, and `install.sh` disables it when it detects the module.
-  linux-cachyos-bc250 ships `bc250_memory` blacklisted (opt-in); to switch
-  from the service to the module:
+  linux-cachyos-bc250 ships `bc250_memory` as opt-in (older builds blacklist
+  it, newer ones simply have no autoload alias for it), so it is not loaded
+  unless you ask for it; to switch from the service to the module:
   `sudo systemctl disable --now bc250-memory.service`, then
   `echo bc250_memory | sudo tee /etc/modules-load.d/bc250-memory.conf` and reboot.
 - Blacklisting `bc250_vrm` is **no longer needed**. If you blacklisted it as

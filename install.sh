@@ -78,9 +78,9 @@ if [ "$MEMORY_KERNEL_OWNS" = 1 ]; then
         echo -e "${YELLOW}⚠ --memory-temp ignored: the kernel driver already provides memory temperatures.${NC}"
     fi
 elif [ "$COMPONENT_MEMORY" = 1 ]; then
-    if [ "$MEMORY_KERNEL" = blacklisted ]; then
-        echo "  -> Your kernel ships the bc250_memory driver, disabled by default. Instead of"
-        echo "     bc250-memory.service you can enable it (then reboot; never use both):"
+    if [ "$MEMORY_KERNEL" = blacklisted ] || [ "$MEMORY_KERNEL" = available ]; then
+        echo "  -> Your kernel ships the bc250_memory driver, but it is not loaded automatically."
+        echo "     Instead of bc250-memory.service you can enable it (then reboot; never use both):"
         echo "       echo bc250_memory | sudo tee /etc/modules-load.d/bc250-memory.conf"
     fi
     MEMORY_EXISTING=0

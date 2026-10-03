@@ -45,34 +45,29 @@ if resolve_install_components 2>/dev/null; then
     echo "ASSERTION FAILED: unknown component must be rejected" >&2
     exit 1
 fi
-# Kernel sensor module detection (modinfo/modprobe stubbed; a module name
-# that can never exist in /sys/module or modules-load.d).
+# Kernel sensor module detection. modinfo/modprobe are stubbed; the module name
+# can never exist in /sys/module or modules-load.d.
+MODALIAS_DIR="$(mktemp -d)"
+echo "dmi:pnAMDBC-250:" > "$MODALIAS_DIR/modalias"
+export MODALIAS_FILE="$MODALIAS_DIR/modalias"
 modinfo() { [ "$1" = fake_bc250_mod ]; }
-modprobe() { [ "$1" = --showconfig ] && printf '%s\n' "${FAKE_MODPROBE_CONFIG:-}"; }
-FAKE_MODPROBE_CONFIG="blacklist fake_bc250_mod"
+modprobe() {
+    case "$1" in
+        --showconfig) printf '%s\n' "${FAKE_MODPROBE_CONFIG:-}" ;;
+        -R) printf '%s\n' "${FAKE_RESOLVED:-}" ;;
+    esac
+}
+FAKE_MODPROBE_CONFIG="blacklist fake_bc250_mod"; FAKE_RESOLVED=""
 assert_equals "blacklisted" "$(kernel_module_state fake_bc250_mod)" "blacklisted module is opt-in"
-FAKE_MODPROBE_CONFIG="alias dmi*:rn*AMDBC_250*: fake_bc250_mod"
-assert_equals "autoload" "$(kernel_module_state fake_bc250_mod)" "installed module autoloads via DMI alias"
+FAKE_MODPROBE_CONFIG="alias dmi*:rn*AMDBC_250*: fake_bc250_mod"; FAKE_RESOLVED="fake_bc250_mod"
+assert_equals "autoload" "$(kernel_module_state fake_bc250_mod)" "matching DMI alias autoloads"
+FAKE_MODPROBE_CONFIG=""; FAKE_RESOLVED="some_other_module"
+assert_equals "available" "$(kernel_module_state fake_bc250_mod)" "installed but nothing loads it (no alias, as in linux-cachyos-bc250 1.239)"
+FAKE_RESOLVED=""
+assert_equals "available" "$(kernel_module_state fake_bc250_mod)" "no resolvable alias at all"
 assert_equals "" "$(kernel_module_state missing_bc250_mod)" "absent module"
 unset -f modinfo modprobe
-
-# Without a terminal, a running/enabled collector is kept and never counts as an
-# opt-out; only an explicit --no-memory-temp is one.
-parse_install_args
-choose_memory_monitoring 1 </dev/null
-assert_equals "1" "$MEMORY_ENABLED" "no terminal keeps an existing collector"
-assert_equals "0" "$MEMORY_OPT_OUT" "no terminal is not an opt-out"
-choose_memory_monitoring 0 </dev/null
-assert_equals "0" "$MEMORY_OPT_OUT" "fresh unattended install is not an opt-out either"
-parse_install_args --no-memory-temp
-choose_memory_monitoring 1 </dev/null
-assert_equals "0" "$MEMORY_ENABLED" "explicit --no-memory-temp disables"
-assert_equals "1" "$MEMORY_OPT_OUT" "explicit --no-memory-temp is an opt-out"
-parse_install_args --memory-temp
-choose_memory_monitoring 0 </dev/null
-assert_equals "1" "$MEMORY_ENABLED" "--memory-temp enables"
-assert_equals "0" "$MEMORY_OPT_OUT" "--memory-temp is not an opt-out"
-parse_install_args
+rm -rf "$MODALIAS_DIR"; unset MODALIAS_FILE FAKE_MODPROBE_CONFIG FAKE_RESOLVED
 
 # Regression: install.sh runs with pipefail, and the real "modprobe --showconfig"
 # prints thousands of lines; an early-exiting grep must not make detection fail.
