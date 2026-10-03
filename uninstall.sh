@@ -22,12 +22,14 @@ fi
 echo -e "${YELLOW}[STEP 1/4]${NC} Stopping and disabling services..."
 sudo systemctl disable --now apu-telemetry 2>/dev/null || true
 sudo systemctl disable --now bc250-web.service 2>/dev/null || true
+sudo systemctl disable --now bc250-web.socket 2>/dev/null || true
 sudo systemctl disable --now bc250-memory.service 2>/dev/null || true
 echo -e "${GREEN}✓ Services stopped!${NC}\n"
 
 echo -e "${YELLOW}[STEP 2/4]${NC} Removing systemd unit files..."
 sudo rm -f /etc/systemd/system/apu-telemetry.service
 sudo rm -f /etc/systemd/system/bc250-web.service
+sudo rm -f /etc/systemd/system/bc250-web.socket
 sudo rm -f /etc/systemd/system/bc250-memory.service
 sudo systemctl daemon-reload
 sudo systemctl reset-failed 2>/dev/null || true

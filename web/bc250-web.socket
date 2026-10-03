@@ -1,0 +1,24 @@
+# BC-250 Telemetry Web Monitor on-demand socket
+#
+# Optional. Replace the always-on bc250-web.service with a server that runs
+# only while someone is actually viewing it:
+#
+#   sudo systemctl disable bc250-web.service
+#   sudo systemctl enable --now bc250-web.socket
+#
+# systemd keeps listening on port 8090 itself; the first request spawns
+# bc250-web.service, which exits again after BC250_WEB_IDLE seconds without a
+# request (default 0 = never). Disable the socket and start the service
+# directly to go back to always-on.
+#
+# If you change BC250_WEB_PORT, set the same port here.
+
+[Unit]
+Description=BC-250 Telemetry Web Monitor on-demand socket
+
+[Socket]
+ListenStream=8090
+Accept=no
+
+[Install]
+WantedBy=sockets.target
