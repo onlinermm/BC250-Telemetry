@@ -170,9 +170,16 @@ A drop-in fragment lives in [`mangohud/MangoHud-bc250.conf`](mangohud/MangoHud-b
 
 ## Screenshots
 
-| Classic (`/`) | v2 — animated board diagram (`/v2/`) |
-|---|---|
-| ![Classic dashboard](images/v1.jpg) | ![v2 dashboard](images/v2.jpg) |
+<table>
+  <tr>
+    <th align="center">Classic (<code>/</code>)</th>
+    <th align="center">v2 — animated board diagram (<code>/v2/</code>)</th>
+  </tr>
+  <tr>
+    <td align="center" valign="middle"><img src="images/v1.jpg" alt="Classic dashboard" height="260"></td>
+    <td align="center" valign="middle"><img src="images/v2.jpg" alt="v2 dashboard" height="260"></td>
+  </tr>
+</table>
 
 ## Quick start
 
