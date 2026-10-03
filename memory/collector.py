@@ -15,6 +15,10 @@ from bc250_smu import Bc250Smu, SmuError
 from patcher import check_platform, ensure_patch, load_payload
 
 RUNTIME_DIR = Path('/run/bc250-memory')
+# The in-kernel bc250_memory driver (linux-cachyos-bc250, bc250-memory-dkms)
+# sends the same SMU queue 3 messages. Running both wedges the SMU, so the
+# kernel driver always wins and this collector stands down.
+KERNEL_DRIVER = Path('/sys/module/bc250_memory')
 STOP = threading.Event()
 
 # Migration of one known earlier validation bug. That exception was raised
@@ -72,7 +76,15 @@ def sample(smu):
             'sampled_boottime_s': started}
 
 
+def kernel_driver_loaded():
+    return KERNEL_DRIVER.exists()
+
+
 def run(runtime=RUNTIME_DIR, interval=3.0):
+    if kernel_driver_loaded():
+        logging.info('bc250_memory kernel driver is loaded and owns SMU memory reads; '
+                     'apu-telemetry reads it via hwmon. Not starting the collector.')
+        return 0
     runtime.mkdir(parents=True, exist_ok=True, mode=0o755)
     # Keep the inode and guard across restarts, but /run clears them at boot.
     # This coordinates our service only; unrelated SMU tools must be stopped.
@@ -111,6 +123,10 @@ def run(runtime=RUNTIME_DIR, interval=3.0):
             logging.info('%s; polling eight chips every %.1f seconds',
                          described.get(state, f'SMU {state}'), interval)
             while not STOP.is_set():
+                if kernel_driver_loaded():
+                    logging.warning('bc250_memory kernel driver was loaded; stopping the collector '
+                                    'to avoid SMU queue 3 collisions')
+                    break
                 # Mark each transaction too: a killed reader must not be
                 # restarted onto a potentially still-running firmware request.
                 atomic_json(guard, {'state': 'reading'})

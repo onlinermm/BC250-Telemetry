@@ -11,7 +11,9 @@
 #include <sys/stat.h>
 #include <time.h>
 
-// File-only IPC. SMU access remains in bc250-memory.service.
+// GDDR6 temperatures arrive either from bc250-memory.service through a small
+// file (read_json), or from the kernel bc250_memory hwmon driver (from_chips,
+// fed by the daemon). The daemon itself never touches the SMU.
 namespace memory_telemetry {
 inline double boot_seconds() {
     timespec ts{};
@@ -107,6 +109,36 @@ inline std::string read_json(const std::string &path = "/run/bc250-memory/teleme
     out << "],\"raw\":[";
     for (size_t i = 0; i < raw.size(); ++i) out << (i ? "," : "") << raw[i];
     out << "]}";
+    return out.str();
+}
+
+// Same JSON shape as read_json(), built from the kernel bc250_memory hwmon
+// driver's per-chip readings (whole degrees C). There are no raw MR3 words in
+// that interface, so "raw" stays empty.
+inline std::string from_chips(const std::array<int, 8> &chips, long age_ms) {
+    int sum = 0, hotspot = 0;
+    bool saturated = false;
+    for (size_t i = 0; i < chips.size(); ++i) {
+        // JEDEC MR3 range is -40..120 °C; anything else is not a reading.
+        if (chips[i] < -40 || chips[i] > 120)
+            return unavailable("invalid_reading", "temperature outside JEDEC range -40..120", age_ms);
+        sum += chips[i];
+        if (chips[i] > chips[hotspot]) hotspot = static_cast<int>(i);
+        saturated |= chips[i] == 120;
+    }
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << "{\"valid\":true,\"status\":\"ok\",\"error\":null,\"age_ms\":" << age_ms << ",\"chips_c\":[";
+    for (size_t i = 0; i < chips.size(); ++i) out << (i ? "," : "") << chips[i];
+    out << "],\"average_c\":" << sum / 8.0 << ",\"hotspot_c\":" << chips[hotspot]
+        << ",\"hotspot_chip\":" << hotspot << ",\"saturated\":" << (saturated ? "true" : "false")
+        << ",\"saturated_chips\":[";
+    bool first = true;
+    for (size_t i = 0; i < chips.size(); ++i) if (chips[i] == 120) {
+        out << (first ? "" : ",") << i;
+        first = false;
+    }
+    out << "],\"raw\":[]}";
     return out.str();
 }
 } // namespace memory_telemetry

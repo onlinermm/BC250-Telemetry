@@ -389,6 +389,11 @@ class CollectorAndApiTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         collector.STOP.clear()
         self.addCleanup(collector.STOP.clear)
+        # Never depend on whether the host running the tests has the kernel
+        # bc250_memory module loaded.
+        driver = patch.object(collector, 'KERNEL_DRIVER', self.root / 'no-kernel-driver')
+        driver.start()
+        self.addCleanup(driver.stop)
 
     def reading(self, raw=None):
         smu = Mock()
@@ -523,6 +528,27 @@ class CollectorAndApiTests(unittest.TestCase):
             collector.STOP.clear()
             self.assertEqual(collector.run(self.root), 0)
             self.assertFalse(prepare.call_args.kwargs['allow_install'])
+        self.assertEqual(json.loads((self.root/'patch-state.json').read_text())['state'], 'ready')
+        self.assertEqual(read_memory(self.root/'telemetry')['status'], 'stopped')
+
+    def test_kernel_driver_loaded_skips_all_smu_access(self):
+        (self.root / 'no-kernel-driver').mkdir()
+        with patch.object(collector, 'check_platform') as platform, patch.object(collector, 'Bc250Smu') as smu:
+            self.assertEqual(collector.run(self.root), 0)
+        platform.assert_not_called()
+        smu.assert_not_called()
+        self.assertFalse((self.root / 'patch-state.json').exists())
+        self.assertFalse((self.root / 'telemetry').exists())
+
+    def test_kernel_driver_loaded_later_stops_polling(self):
+        reading = self.reading()
+        def driver_appears(smu):
+            (self.root / 'no-kernel-driver').mkdir()
+            return reading
+        with patch.object(collector, 'check_platform'), patch.object(collector, 'ensure_patch'), \
+                patch.object(collector, 'Bc250Smu'), patch.object(collector, 'sample', side_effect=driver_appears) as sample:
+            self.assertEqual(collector.run(self.root, interval=0.01), 0)
+        self.assertEqual(sample.call_count, 1)
         self.assertEqual(json.loads((self.root/'patch-state.json').read_text())['state'], 'ready')
         self.assertEqual(read_memory(self.root/'telemetry')['status'], 'stopped')
 

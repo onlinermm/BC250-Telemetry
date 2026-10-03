@@ -1,10 +1,12 @@
 [Unit]
 Description=APU Real-Time Power Telemetry Daemon
-After=network.target
+After=network.target systemd-modules-load.service
 
 [Service]
 Type=simple
 ExecStart=TELEMETRY_BIN_PATH
+# Re-reads /etc/bc250-telemetry.conf without a restart.
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=3
 User=root
