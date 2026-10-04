@@ -151,3 +151,26 @@ bash tests/test_install_lib.sh
 ```
 
 Tests use fake SMU/PCI/DMA interfaces and never patch real hardware.
+
+## Payload installed by BIOS/EFI (reader-only)
+
+If the firmware installs the single-chip temperature payload before Linux starts
+(after MeiMei SMU Unlock), the collector only reads it:
+
+    collector.py --mode reader-only      # or BC250_MEMORY_MODE=reader-only
+    collector.py --probe                 # read-only: firmware-original|firmware-bounded|none|unknown|linux
+
+- Never runs the unlock exploit and never writes SMU SRAM.
+- Accepts only known builds, matched by Q3/5 handler **and** SRAM size/SHA-256:
+  `original` (176 B, `0x3AAC4`) and `bounded` (212 B, `0x3AAC8`). An unknown or
+  modified payload is refused, never overwritten.
+- Relaxes only the DMI BIOS-version string; board name, AMD root and the
+  1002:13fe GPU are still required. `auto` (default) also accepts these builds
+  and otherwise installs the payload from Linux (BIOS `P3.00`).
+- ABI unchanged: Q3/5, arg = chip 0..7, `T = code * 2 - 40`. Batch commands
+  0x40/0x41 are **not** supported.
+- `install.sh` runs `--probe` (`--memory-mode=detect`, the default) and, when the
+  BIOS payload is found, writes `/etc/bc250-memory.conf` with
+  `BC250_MEMORY_MODE=reader-only`, which the unit reads. Force with
+  `--memory-mode=reader-only|auto`. The probe is skipped while the service runs.
+- The in-kernel `bc250_memory` driver still takes precedence and is not touched.

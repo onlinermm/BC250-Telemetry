@@ -28,7 +28,7 @@ echo -e "${GREEN}✓ Services stopped!${NC}\n"
 echo -e "${YELLOW}[STEP 2/4]${NC} Removing systemd unit files..."
 sudo rm -f /etc/systemd/system/apu-telemetry.service
 sudo rm -f /etc/systemd/system/bc250-web.service
-sudo rm -f /etc/systemd/system/bc250-memory.service
+sudo rm -f /etc/systemd/system/bc250-memory.service /etc/bc250-memory.conf
 sudo systemctl daemon-reload
 sudo systemctl reset-failed 2>/dev/null || true
 echo -e "${GREEN}✓ Service configs removed!${NC}\n"

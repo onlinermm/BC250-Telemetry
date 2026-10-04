@@ -10,6 +10,8 @@ Type=simple
 User=root
 # Unbuffered, so journal timestamps match when each line was written.
 Environment=PYTHONUNBUFFERED=1
+# BC250_MEMORY_MODE=reader-only when the BIOS installs the payload (set by install.sh).
+EnvironmentFile=-/etc/bc250-memory.conf
 ExecStart=/usr/bin/python3 -B /opt/bc250-memory/collector.py
 RuntimeDirectory=bc250-memory
 RuntimeDirectoryMode=0755

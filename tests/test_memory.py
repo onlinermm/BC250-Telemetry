@@ -2,6 +2,7 @@
 import contextlib
 import ctypes
 import fcntl
+import hashlib
 import io
 import json
 import logging
@@ -279,6 +280,74 @@ class PatcherTests(unittest.TestCase):
             with self.assertRaises(SmuError): patcher.ensure_patch(smu, patcher.load_payload())
             unlock_mock.assert_not_called()
 
+    def _firmware_install(self, smu, handler, size):
+        blob = bytes((i * 7 + 1) & 0xFF for i in range(size))
+        smu.memory[patcher.PAYLOAD_START:patcher.PAYLOAD_START + size] = blob
+        smu.memory[patcher.HANDLER_REG:patcher.HANDLER_REG + 4] = handler.to_bytes(4, 'little')
+        return blob
+
+    def _firmware_original(self, smu):
+        payload = patcher.load_payload()
+        smu.memory[patcher.PAYLOAD_START:patcher.PAYLOAD_START + len(payload)] = payload
+        smu.memory[patcher.HANDLER_REG:patcher.HANDLER_REG + 4] = patcher.HANDLER.to_bytes(4, 'little')
+        return payload
+
+    def test_firmware_original_payload_is_accepted_read_only(self):
+        smu = SramSmu()
+        payload = self._firmware_original(smu)
+        with patch.object(patcher, 'unlock') as unlock_mock:
+            self.assertEqual(patcher.ensure_patch(smu, payload, mode='reader-only'), 'already_patched')
+            unlock_mock.assert_not_called()
+        self.assertEqual(smu.writes, [])
+
+    def test_firmware_bounded_payload_is_accepted_by_hash_without_writes(self):
+        smu = SramSmu()
+        blob = self._firmware_install(smu, 0x3AAC8, 212)
+        known = list(patcher.KNOWN_PAYLOADS)
+        known[1] = ('bounded', 0x3AAC8, 212, hashlib.sha256(blob).hexdigest())
+        with patch.object(patcher, 'KNOWN_PAYLOADS', tuple(known)), patch.object(patcher, 'unlock') as unlock_mock:
+            for mode in ('auto', 'reader-only'):
+                self.assertEqual(patcher.ensure_patch(smu, patcher.load_payload(), mode=mode),
+                                 'already_patched_bounded')
+            unlock_mock.assert_not_called()
+        self.assertEqual(smu.writes, [])
+
+    def test_known_handler_with_foreign_bytes_is_rejected(self):
+        for handler, size in ((0x3AAC4, 176), (0x3AAC8, 212)):
+            smu = SramSmu()
+            self._firmware_install(smu, handler, size)
+            with patch.object(patcher, 'unlock') as unlock_mock, self.assertRaises(SmuError):
+                patcher.ensure_patch(smu, patcher.load_payload(), mode='reader-only')
+            unlock_mock.assert_not_called()
+            self.assertEqual(smu.writes, [])
+
+    def test_reader_only_never_installs(self):
+        for current in (0, 0x1234):
+            smu = SramSmu()
+            smu.memory[patcher.HANDLER_REG:patcher.HANDLER_REG + 4] = current.to_bytes(4, 'little')
+            with patch.object(patcher, 'unlock') as unlock_mock, self.assertRaisesRegex(SmuError, 'no known'):
+                patcher.ensure_patch(smu, patcher.load_payload(), mode='reader-only')
+            unlock_mock.assert_not_called()
+            self.assertEqual(smu.writes, [])
+        with self.assertRaises(SmuError):
+            patcher.ensure_patch(SramSmu(), patcher.load_payload(), mode='bogus')
+
+    def test_bios_string_only_relaxed_in_reader_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dmi, pci = root / 'dmi', root / 'pci'
+            dmi.mkdir(); pci.mkdir()
+            (dmi / 'board_name').write_text('BC-250\n')
+            (dmi / 'bios_version').write_text('P3.00-PUNSH-T\n')
+            for bdf, vendor, device in (('0000:00:00.0', '0x1022', '0x0000'), ('0000:01:00.0', '0x1002', '0x13fe')):
+                (pci / bdf).mkdir()
+                (pci / bdf / 'vendor').write_text(vendor)
+                (pci / bdf / 'device').write_text(device)
+            with self.assertRaises(SmuError): patcher.check_platform(dmi, pci)
+            patcher.check_platform(dmi, pci, strict_bios=False)
+            (dmi / 'board_name').write_text('Other')
+            with self.assertRaises(SmuError): patcher.check_platform(dmi, pci, strict_bios=False)
+
     def test_platform_gate(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -369,6 +438,81 @@ def read_memory(path, now=None):
 
 
 @unittest.skipUnless(shutil.which('g++'), 'g++ is required to build the native reader harness')
+class ProbeTests(unittest.TestCase):
+    """collector.probe(): read-only, never writes SRAM or leaves a bad guard."""
+    _firmware_install = PatcherTests._firmware_install
+    _firmware_original = PatcherTests._firmware_original
+
+    def _probe(self, smu, runtime, **kwargs):
+        with patch.object(collector, 'Bc250Smu', return_value=smu), \
+                patch.object(collector, 'kernel_driver_loaded', return_value=False):
+            return collector.probe(runtime)
+
+    def test_firmware_original(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            smu = SramSmu(); smu.close = lambda: None
+            self._firmware_original(smu)
+            self.assertEqual(self._probe(smu, runtime), 'firmware-original')
+            self.assertEqual(smu.writes, [])
+            self.assertEqual(json.loads((runtime / 'patch-state.json').read_text()),
+                             {'state': 'ready', 'source': 'firmware'})
+            # A repeated probe still knows the BIOS installed it.
+            self.assertEqual(self._probe(smu, runtime), 'firmware-original')
+
+    def test_empty_slot_leaves_no_guard_so_service_can_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            smu = SramSmu(); smu.close = lambda: None
+            smu.memory[patcher.HANDLER_REG:patcher.HANDLER_REG + 4] = bytes(4)
+            self.assertEqual(self._probe(smu, runtime), 'none')
+            self.assertFalse((runtime / 'patch-state.json').exists())
+            self.assertEqual(smu.writes, [])
+
+    def test_unknown_and_modified_payload(self):
+        for setup in (lambda s: None, lambda s: self._firmware_install(s, 0x3AAC4, 176)):
+            with tempfile.TemporaryDirectory() as directory:
+                smu = SramSmu(); smu.close = lambda: None
+                setup(smu)
+                self.assertEqual(self._probe(smu, Path(directory)), 'unknown')
+                self.assertEqual(smu.writes, [])
+
+    def test_payload_installed_by_linux_this_boot_is_not_firmware(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            (runtime / 'patch-state.json').write_text('{"state": "ready"}')
+            smu = SramSmu(); smu.close = lambda: None
+            self._firmware_original(smu)
+            self.assertEqual(self._probe(smu, runtime), 'linux')
+
+    def test_refusals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            smu = SramSmu(); smu.close = lambda: None
+            (runtime / 'patch-state.json').write_text('{"state": "reading"}')
+            with self.assertRaisesRegex(SmuError, 'did not finish'): self._probe(smu, runtime)
+            (runtime / 'patch-state.json').unlink()
+            with (runtime / 'smu.lock').open('a') as held:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                with self.assertRaisesRegex(SmuError, 'owns the SMU lock'): self._probe(smu, runtime)
+            with patch.object(collector, 'kernel_driver_loaded', return_value=True), \
+                    self.assertRaisesRegex(SmuError, 'kernel driver'):
+                collector.probe(runtime)
+
+    def test_main_probe_exit_codes_and_env_mode(self):
+        for label, code in collector.PROBE_EXIT.items():
+            with patch.object(collector, 'probe', return_value=label), \
+                    patch.object(sys, 'argv', ['collector.py', '--probe']), patch.object(os, 'geteuid', return_value=0), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(collector.main(), code)
+                self.assertEqual(out.getvalue().strip(), label)
+        with patch.dict(os.environ, {'BC250_MEMORY_MODE': 'reader-only'}), \
+                patch.object(collector, 'run', return_value=0) as run_mock, \
+                patch.object(sys, 'argv', ['collector.py']), patch.object(os, 'geteuid', return_value=0):
+            collector.main()
+            self.assertEqual(run_mock.call_args.kwargs['mode'], 'reader-only')
+
+
 class CollectorAndApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

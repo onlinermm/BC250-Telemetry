@@ -7,6 +7,9 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -20,6 +23,7 @@ source ./install-lib.sh
 # --fan-control).
 parse_install_args "$@"
 if ! resolve_install_components; then exit 2; fi
+case "$MEMORY_MODE_FLAG" in auto|reader-only|detect) ;; *) echo "Invalid --memory-mode '$MEMORY_MODE_FLAG' (use auto, reader-only or detect)" >&2; exit 2 ;; esac
 if [ "$DRY_RUN_FLAG" = 1 ]; then
     echo -e "${BLUE}=== BC-250 Telemetry install plan (dry run) ===${NC}"
     print_install_plan
@@ -68,32 +72,38 @@ if [ -n "$VRM_BLACKLIST" ]; then
     echo "     Until then VRM telemetry keeps using direct PMBus, as before."
 fi
 
-echo "  GDDR6 memory temperatures:"
+echo -e "  ${BOLD}GDDR6 memory temperatures:${NC}"
 MEMORY_ENABLED=0
+MEMORY_MODE=auto
 if [ "$MEMORY_KERNEL_OWNS" = 1 ]; then
-    echo "  -> Kernel bc250_memory driver detected ($MEMORY_KERNEL): GDDR6 temperatures"
-    echo "     will be read from hwmon. bc250-memory.service is not installed — it would"
-    echo "     collide with the kernel driver on SMU queue 3."
+    echo -e "  ${GREEN}✓${NC} Kernel ${BOLD}bc250_memory${NC} driver detected ($MEMORY_KERNEL)"
+    echo -e "    ${DIM}GDDR6 temperatures are read from hwmon. bc250-memory.service is not installed:${NC}"
+    echo -e "    ${DIM}it would collide with the kernel driver on SMU queue 3.${NC}"
     if [ "$MEMORY_TEMP_FLAG" = 1 ]; then
         echo -e "${YELLOW}⚠ --memory-temp ignored: the kernel driver already provides memory temperatures.${NC}"
     fi
 elif [ "$COMPONENT_MEMORY" = 1 ]; then
     if [ "$MEMORY_KERNEL" = blacklisted ] || [ "$MEMORY_KERNEL" = available ]; then
-        echo "  -> Your kernel ships the bc250_memory driver, but it is not loaded automatically."
-        echo "     Instead of bc250-memory.service you can enable it (then reboot; never use both):"
-        echo "       echo bc250_memory | sudo tee /etc/modules-load.d/bc250-memory.conf"
+        echo -e "  ${CYAN}ℹ${NC} Your kernel ships the ${BOLD}bc250_memory${NC} driver, but it is not loaded automatically."
+        echo -e "    ${DIM}Optional alternative to bc250-memory.service (reboot after; never use both):${NC}"
+        echo -e "    ${CYAN}\$ echo bc250_memory | sudo tee /etc/modules-load.d/bc250-memory.conf${NC}"
+        echo
     fi
     MEMORY_EXISTING=0
     if memory_service_existing; then MEMORY_EXISTING=1; fi
     choose_memory_monitoring "$MEMORY_EXISTING"
     if [ "$MEMORY_ENABLED" = 1 ]; then
-        echo "  -> Memory monitoring enabled; checking board and payload compatibility"
-        sudo python3 -B "$SCRIPT_DIR/memory/collector.py" --check
+        resolve_memory_mode || exit 2
+        echo -e "  ${GREEN}✓${NC} Memory monitoring enabled"
+        echo -e "    ${BOLD}Mode${NC}   $MEMORY_MODE"
+        echo -e "    ${BOLD}Reason${NC} ${DIM}$MEMORY_MODE_NOTE${NC}"
+        sudo python3 -B "$SCRIPT_DIR/memory/collector.py" --check --mode "$MEMORY_MODE" > /dev/null
+        echo -e "    ${BOLD}Check${NC}  ${GREEN}board and payload compatible${NC} ${DIM}(SMU was not accessed)${NC}"
     else
-        echo "  -> Memory monitoring not enabled (existing files and data are left untouched)"
+        echo -e "  ${YELLOW}○${NC} Memory monitoring not enabled ${DIM}(existing files and data are left untouched)${NC}"
     fi
 else
-    echo "  -> Preserving existing memory service, files, and telemetry data"
+    echo -e "  ${CYAN}ℹ${NC} Preserving existing memory service, files, and telemetry data"
 fi
 
 if [ "$COMPONENT_NUVOTON" = 1 ]; then
@@ -316,6 +326,12 @@ if [ "$COMPONENT_MEMORY" = 1 ] && [ "$MEMORY_ENABLED" = "1" ]; then
     sudo install -m 0644 memory/bc250_smu/*.py /opt/bc250-memory/bc250_smu/
     sudo install -m 0644 memory/payload/SMUPayload.bin /opt/bc250-memory/payload/
     sudo install -m 0644 memory/bc250-memory.service /etc/systemd/system/bc250-memory.service
+    # reader-only keeps the service from ever unlocking or writing SMU SRAM.
+    if [ "$MEMORY_MODE" = reader-only ]; then
+        printf 'BC250_MEMORY_MODE=reader-only\n' | sudo tee /etc/bc250-memory.conf > /dev/null
+    else
+        sudo rm -f /etc/bc250-memory.conf
+    fi
     if command -v restorecon >/dev/null 2>&1; then
         sudo restorecon -R /opt/bc250-memory || true
     fi
@@ -329,7 +345,7 @@ elif [ -f /etc/systemd/system/bc250-memory.service ] &&
         echo "  -> Memory monitoring declined: removing the previously installed collector"
     fi
     sudo systemctl disable --now bc250-memory.service || true
-    sudo rm -f /etc/systemd/system/bc250-memory.service
+    sudo rm -f /etc/systemd/system/bc250-memory.service /etc/bc250-memory.conf
     # Opting out removes the on-disk SMU-patching code, not just the unit.
     sudo rm -rf /opt/bc250-memory
     sudo rm -f /run/bc250-memory/telemetry

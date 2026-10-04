@@ -126,6 +126,37 @@ assert_equals "0" "$MEMORY_ENABLED" "explicit disabling overrides existing setti
 parse_install_args --memory-temp
 choose_memory_monitoring 0 </dev/null
 assert_equals "1" "$MEMORY_ENABLED" "explicit enabling works without a TTY"
+parse_install_args
+assert_equals "detect" "$MEMORY_MODE_FLAG" "memory mode defaults to detection"
+parse_install_args --memory-mode=reader-only
+assert_equals "reader-only" "$MEMORY_MODE_FLAG" "memory mode flag should be parsed"
+resolve_memory_mode
+assert_equals "reader-only" "$MEMORY_MODE" "forced reader-only"
+parse_install_args --memory-mode=bogus
+if resolve_memory_mode 2>/dev/null; then echo "ASSERTION FAILED: invalid memory mode must be rejected" >&2; exit 1; fi
+parse_install_args
+systemctl() { return 1; }  # hermetic: the collector service is not running
+MEMORY_PROBE_CMD="echo firmware-original"; resolve_memory_mode
+assert_equals "reader-only" "$MEMORY_MODE" "BIOS-installed original payload selects reader-only"
+MEMORY_PROBE_CMD="echo firmware-bounded"; resolve_memory_mode
+assert_equals "reader-only" "$MEMORY_MODE" "BIOS-installed bounded payload selects reader-only"
+for label in none unknown linux ""; do
+    MEMORY_PROBE_CMD="echo $label"; resolve_memory_mode
+    assert_equals "auto" "$MEMORY_MODE" "probe result '$label' keeps the default install path"
+done
+MEMORY_PROBE_CMD="false"; resolve_memory_mode
+assert_equals "auto" "$MEMORY_MODE" "failed probe keeps the default install path"
+systemctl() { return 0; }  # collector running: keep its mode, never probe
+MEMORY_PROBE_CMD="echo firmware-original"; MEMORY_CONF="$(mktemp)"
+printf 'BC250_MEMORY_MODE=auto\n' > "$MEMORY_CONF"; resolve_memory_mode
+assert_equals "auto" "$MEMORY_MODE" "a running collector keeps its configured mode"
+printf 'BC250_MEMORY_MODE=reader-only\n' > "$MEMORY_CONF"; resolve_memory_mode
+assert_equals "reader-only" "$MEMORY_MODE" "a running collector keeps reader-only"
+rm -f "$MEMORY_CONF"; unset MEMORY_CONF; unset -f systemctl
+unset MEMORY_PROBE_CMD
+parse_install_args --components=daemon,memory
+resolve_install_components
+case "$(print_install_plan)" in *"Memory mode: detect"*) ;; *) echo "ASSERTION FAILED: plan must show memory mode" >&2; exit 1 ;; esac
 assert_equals "1" "$(memory_choice yes 0)" "yes enables monitoring"
 assert_equals "0" "$(memory_choice no 1)" "no disables monitoring"
 assert_equals "1" "$(memory_choice '' 1)" "Enter preserves enabled monitoring"

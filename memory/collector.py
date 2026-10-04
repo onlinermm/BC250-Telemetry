@@ -12,7 +12,7 @@ import threading
 import time
 
 from bc250_smu import Bc250Smu, SmuError
-from patcher import check_platform, ensure_patch, load_payload
+from patcher import HANDLER_REG, MODES, check_platform, ensure_patch, identify_installed, load_payload
 
 RUNTIME_DIR = Path('/run/bc250-memory')
 # The in-kernel bc250_memory driver (linux-cachyos-bc250, bc250-memory-dkms)
@@ -80,7 +80,7 @@ def kernel_driver_loaded():
     return KERNEL_DRIVER.exists()
 
 
-def run(runtime=RUNTIME_DIR, interval=3.0):
+def run(runtime=RUNTIME_DIR, interval=3.0, mode='auto'):
     if kernel_driver_loaded():
         logging.info('bc250_memory kernel driver is loaded and owns SMU memory reads; '
                      'apu-telemetry reads it via hwmon. Not starting the collector.')
@@ -101,7 +101,7 @@ def run(runtime=RUNTIME_DIR, interval=3.0):
         try:
             publish_snapshot(output, unavailable('starting'))
             payload = load_payload()  # Must precede any SMU access.
-            check_platform()
+            check_platform(strict_bios=mode != 'reader-only')
             previous = None
             retry_empty_slot = False
             if guard.exists():
@@ -116,10 +116,17 @@ def run(runtime=RUNTIME_DIR, interval=3.0):
             smu = Bc250Smu()
             atomic_json(guard, {'state': 'preparing'})
             hardware_started = True
-            state = ensure_patch(smu, payload, allow_install=previous is None or retry_empty_slot)
-            atomic_json(guard, {'state': 'ready'})
+            state = ensure_patch(smu, payload, allow_install=previous is None or retry_empty_slot, mode=mode)
+            # Remember that firmware, not this host, installed the payload, so
+            # the installer's --probe can tell the two apart later this boot.
+            extra = {}
+            if (previous is None and state.startswith('already_patched')) or \
+                    (isinstance(previous, dict) and previous.get('source') == 'firmware'):
+                extra = {'source': 'firmware'}
+            atomic_json(guard, {'state': 'ready', **extra})
             described = {'patched': 'SMU payload installed',
-                         'already_patched': 'SMU payload already installed this boot'}
+                         'already_patched': 'SMU payload already installed this boot',
+                         'already_patched_bounded': 'bounded SMU payload already installed (BIOS/EFI)'}
             logging.info('%s; polling eight chips every %.1f seconds',
                          described.get(state, f'SMU {state}'), interval)
             while not STOP.is_set():
@@ -129,9 +136,9 @@ def run(runtime=RUNTIME_DIR, interval=3.0):
                     break
                 # Mark each transaction too: a killed reader must not be
                 # restarted onto a potentially still-running firmware request.
-                atomic_json(guard, {'state': 'reading'})
+                atomic_json(guard, {'state': 'reading', **extra})
                 result = sample(smu)
-                atomic_json(guard, {'state': 'ready'})
+                atomic_json(guard, {'state': 'ready', **extra})
                 publish_snapshot(output, result)
                 STOP.wait(interval)
             publish_snapshot(output, unavailable('stopped'))
@@ -148,9 +155,69 @@ def run(runtime=RUNTIME_DIR, interval=3.0):
                 smu.close()
 
 
+PROBE_EXIT = {'firmware-original': 0, 'firmware-bounded': 0, 'none': 3, 'unknown': 4, 'linux': 5}
+
+
+def probe(runtime=RUNTIME_DIR):
+    """Read-only: report which temperature payload is installed, and by whom.
+
+    Never unlocks and never writes SMU SRAM. Labels: firmware-original,
+    firmware-bounded, none (empty slot), unknown (foreign handler or modified
+    bytes), linux (this host already used the SMU this boot, so the payload's
+    origin cannot be told). Raises SmuError/OSError when the SMU is unusable.
+    """
+    if kernel_driver_loaded():
+        raise SmuError('bc250_memory kernel driver owns SMU memory reads')
+    runtime.mkdir(parents=True, exist_ok=True, mode=0o755)
+    with (runtime / 'smu.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SmuError('another memory collector owns the SMU lock')
+        guard = runtime / 'patch-state.json'
+        previous = json.loads(guard.read_text()) if guard.exists() else None
+        if previous is not None and (not isinstance(previous, dict) or previous.get('state') != 'ready'):
+            raise SmuError('previous SMU operation did not finish; reboot before retrying')
+        origin = None if previous is None else previous.get('source')
+        smu = Bc250Smu()
+        try:
+            atomic_json(guard, {'state': 'reading', **({'source': origin} if origin else {})})
+            if not smu.alive():
+                raise SmuError('SMU failed its initial probe')
+            current = int.from_bytes(smu.smu_read(HANDLER_REG), 'little')
+            try:
+                known = identify_installed(smu, current)
+            except SmuError:
+                known = None
+            if known:
+                label = f'firmware-{known}'
+            else:
+                label = 'none' if current == 0 else 'unknown'
+            if known and previous is not None and origin != 'firmware':
+                label = 'linux'
+            elif known and previous is None:
+                origin = 'firmware'
+            if previous is None and not known:
+                # Nothing was written, and an empty slot must stay installable
+                # by the service later this boot: do not leave a guard behind.
+                guard.unlink()
+            else:
+                atomic_json(guard, {'state': 'ready', **({'source': origin} if origin else {})})
+            return label
+        except BaseException as error:
+            atomic_json(guard, {'state': 'failed', 'error': str(error)})
+            raise
+        finally:
+            smu.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--interval', type=float, default=3.0)
+    parser.add_argument('--mode', choices=MODES, default=os.environ.get('BC250_MEMORY_MODE', 'auto'),
+                        help='reader-only: never unlock/upload; use a payload installed by BIOS/EFI')
+    parser.add_argument('--probe', action='store_true',
+                        help='read-only: print which payload is installed (firmware-*/none/unknown/linux)')
     parser.add_argument('--check', action='store_true', help='validate platform/payload without accessing SMU')
     args = parser.parse_args()
     if not math.isfinite(args.interval) or not 1 <= args.interval <= 5:
@@ -159,7 +226,7 @@ def main():
     if args.check:
         try:
             load_payload()
-            check_platform()
+            check_platform(strict_bios=args.mode != 'reader-only')
         except (SmuError, OSError) as error:
             logging.error('Preflight check failed: %s', error)
             return 1
@@ -167,9 +234,17 @@ def main():
         return 0
     if os.geteuid() != 0:
         parser.error('SMU access requires root')
+    if args.probe:
+        try:
+            label = probe()
+        except (SmuError, OSError, ValueError) as error:
+            logging.error('Probe failed: %s', error)
+            return 1
+        print(label)
+        return PROBE_EXIT[label]
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: STOP.set())
-    return run(interval=args.interval)
+    return run(interval=args.interval, mode=args.mode)
 
 
 if __name__ == '__main__':

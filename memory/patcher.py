@@ -11,6 +11,15 @@ PAYLOAD_END = 0x3E000
 HANDLER_REG = 0x748C
 HANDLER = 0x3AAC4
 PAYLOAD_SHA256 = 'b31908460e932a615d9eafb6b3112e6448994f9f6fa656d1d80a8616ac1df4df'
+# Builds a BIOS/EFI installer may have placed in SRAM before Linux started.
+# They share the single-chip Q3/5 ABI; a handler is accepted only when the
+# SRAM bytes match the pinned size and hash. The bounded build is not bundled:
+# it is identified by hash, never installed from here.
+KNOWN_PAYLOADS = (
+    ('original', HANDLER, 176, PAYLOAD_SHA256),
+    ('bounded', 0x3AAC8, 212, '4ba2528c0441b6fd72c1e255af6dd14d16fbc0f831f9a75275a63a2e1233f328'),
+)
+MODES = ('auto', 'reader-only')
 PAYLOAD_FILE = Path(__file__).resolve().parent / 'payload' / 'SMUPayload.bin'
 
 
@@ -22,13 +31,15 @@ def load_payload(path=PAYLOAD_FILE):
     return data
 
 
-def check_platform(dmi=Path('/sys/class/dmi/id'), pci=Path('/sys/bus/pci/devices')):
+def check_platform(dmi=Path('/sys/class/dmi/id'), pci=Path('/sys/bus/pci/devices'), strict_bios=True):
     # DMI is a coarse compatibility gate, not a proof of the SMU firmware
     # contents. Custom firmware using the same DMI strings is unsupported.
+    # Reader-only mode relaxes the BIOS string (custom BIOS builds may rename
+    # it); it relies on identify_installed() to prove the live payload.
     board = (dmi / 'board_name').read_text().strip()
     bios = (dmi / 'bios_version').read_text().strip()
     board_id = board.upper().replace('-', '').replace(' ', '')
-    if board_id not in ('BC250', 'AMDBC250') or bios.upper() not in ('P3.0', 'P3.00'):
+    if board_id not in ('BC250', 'AMDBC250') or (strict_bios and bios.upper() not in ('P3.0', 'P3.00')):
         raise SmuError(f'unsupported board/BIOS: {board!r} / {bios!r}; expected BC-250 P3.0')
     root_vendor = (pci / '0000:00:00.0' / 'vendor').read_text().strip().lower()
     if root_vendor != '0x1022':
@@ -45,15 +56,39 @@ def read_bytes(smu, start, size):
                     for addr in range(start, start + size, 72))
 
 
-def ensure_patch(smu, payload, allow_install=True):
+def identify_installed(smu, current):
+    """Name of the known payload behind Q3/5 handler `current`, else None.
+
+    Read-only. A known handler address with different SRAM bytes is an error:
+    never run (or overwrite) code we cannot identify.
+    """
+    for name, handler, size, sha256 in KNOWN_PAYLOADS:
+        if current == handler:
+            if hashlib.sha256(read_bytes(smu, PAYLOAD_START, size)).hexdigest() != sha256:
+                raise SmuError('Q3/5 points at an unexpected payload; reboot before retrying')
+            return name
+    return None
+
+
+def ensure_patch(smu, payload, allow_install=True, mode='auto'):
+    """Returns 'patched', 'already_patched' (original) or 'already_patched_bounded'.
+
+    mode='reader-only' never unlocks or writes: it only accepts a payload that
+    firmware (or an earlier run) already installed.
+    """
+    if mode not in MODES:
+        raise SmuError(f'unknown memory mode: {mode!r}')
     if not smu.alive():
         raise SmuError('SMU failed its initial probe')
     current = int.from_bytes(smu.smu_read(HANDLER_REG), 'little')
-    installed = read_bytes(smu, PAYLOAD_START, len(payload))
-    if current == HANDLER:
-        if installed != payload:
-            raise SmuError('Q3/5 points at an unexpected payload; reboot before retrying')
+    known = identify_installed(smu, current)
+    if known == 'original':
         return 'already_patched'
+    if known:
+        return f'already_patched_{known}'
+    if mode == 'reader-only':
+        raise SmuError(f'no known temperature payload installed (Q3/5 handler 0x{current:08x}); '
+                       'enable it in BIOS/EFI or use mode=auto')
     if not allow_install:
         raise SmuError('SMU patch changed during this boot; reboot before retrying')
     # The slot may be empty before installation (observed on P3.00 with

@@ -6,12 +6,14 @@ case ":$PATH:" in *:/usr/sbin:*) ;; *) PATH="$PATH:/usr/sbin:/sbin" ;; esac
 
 DASHBOARD_FLAG=""
 MEMORY_TEMP_FLAG=auto
+MEMORY_MODE_FLAG=detect
 COMPONENTS_FLAG=""
 DRY_RUN_FLAG=0
 
 parse_install_args() {
     DASHBOARD_FLAG=""
     MEMORY_TEMP_FLAG=auto
+    MEMORY_MODE_FLAG=detect
     COMPONENTS_FLAG=""
     DRY_RUN_FLAG=0
 
@@ -22,6 +24,9 @@ parse_install_args() {
                 ;;
             --no-memory-temp)
                 MEMORY_TEMP_FLAG=0
+                ;;
+            --memory-mode=*)
+                MEMORY_MODE_FLAG="${arg#--memory-mode=}"
                 ;;
             --dashboard=*)
                 DASHBOARD_FLAG="${arg#--dashboard=}"
@@ -64,10 +69,51 @@ choose_memory_monitoring() {
         if [ "$MEMORY_TEMP_FLAG" = 0 ]; then MEMORY_OPT_OUT=1; fi
     elif [ -t 0 ]; then
         [ "$existing" = 1 ] && hint="Y/n"
-        read -r -t 30 -p "Enable GDDR6 memory temperatures (experimental, BC-250 P3.0)? [$hint]: " answer || answer=""
+        read -r -t 30 -p $'\033[1m  ? Enable GDDR6 memory temperatures\033[0m (experimental; BC-250 P3.0 or BIOS with the patch) ['"$hint"']: ' answer || answer=""
         MEMORY_ENABLED="$(memory_choice "$answer" "$existing")"
         case "$answer" in n|N|no|NO|ні|Ні|0) MEMORY_OPT_OUT=1 ;; esac
     fi
+}
+
+# Decide how bc250-memory.service reaches the temperature payload. Sets
+# MEMORY_MODE (reader-only|auto) and MEMORY_MODE_NOTE (human explanation).
+#   --memory-mode=reader-only|auto  forced
+#   detect (default)  a read-only probe of the live SMU: a payload installed by
+#                     the BIOS means reader-only (no unlock, no SRAM writes);
+#                     anything else keeps auto (the service installs it itself).
+# The probe is skipped, keeping the existing mode, while the collector service
+# is running (it owns the SMU). MEMORY_PROBE_CMD may be overridden (tests).
+resolve_memory_mode() {
+    MEMORY_MODE=auto
+    MEMORY_MODE_NOTE=""
+    case "$MEMORY_MODE_FLAG" in
+        reader-only|auto)
+            MEMORY_MODE="$MEMORY_MODE_FLAG"
+            MEMORY_MODE_NOTE="forced by --memory-mode=$MEMORY_MODE_FLAG"
+            return 0 ;;
+        detect) ;;
+        *) echo "Invalid --memory-mode '$MEMORY_MODE_FLAG' (use auto, reader-only or detect)" >&2
+           return 1 ;;
+    esac
+    if systemctl is-active --quiet bc250-memory.service 2>/dev/null; then
+        MEMORY_MODE="$(sed -n 's/^BC250_MEMORY_MODE=//p' "${MEMORY_CONF:-/etc/bc250-memory.conf}" 2>/dev/null | tail -n1)"
+        case "$MEMORY_MODE" in reader-only|auto) ;; *) MEMORY_MODE=auto ;; esac
+        MEMORY_MODE_NOTE="collector is running; keeping its current mode"
+        return 0
+    fi
+    local label=""
+    label="$(${MEMORY_PROBE_CMD:-sudo python3 -B "$SCRIPT_DIR/memory/collector.py" --probe} 2>/dev/null | tail -n1)" || true
+    case "$label" in
+        firmware-original|firmware-bounded)
+            MEMORY_MODE=reader-only
+            MEMORY_MODE_NOTE="BIOS already installed the temperature payload (${label#firmware-}); no unlock needed" ;;
+        none)
+            MEMORY_MODE_NOTE="no payload in the BIOS; the service installs it itself (needs BIOS P3.00)" ;;
+        linux)
+            MEMORY_MODE_NOTE="this boot's SMU payload was installed from Linux; mode unchanged" ;;
+        *)
+            MEMORY_MODE_NOTE="BIOS payload not recognised (${label:-probe failed}); using the default install path" ;;
+    esac
 }
 
 # An installed collector counts as "existing" when it is enabled or running
@@ -235,6 +281,7 @@ print_install_plan() {
     [ "$COMPONENT_MEMORY" = 1 ] && selected="${selected:+$selected,}memory"
     [ "$COMPONENT_NUVOTON" = 1 ] && selected="${selected:+$selected,}nuvoton"
     printf 'Install components: %s\n' "$selected"
+    [ "$COMPONENT_MEMORY" = 1 ] && printf 'Memory mode: %s\n' "$MEMORY_MODE_FLAG"
     [ "$COMPONENT_WEB" = 1 ] || printf 'Preserve existing web service and dashboard config\n'
     [ "$COMPONENT_MEMORY" = 1 ] || printf 'Preserve existing memory service and data\n'
     [ "$COMPONENT_NUVOTON" = 1 ] || printf 'Preserve existing Nuvoton configuration\n'
