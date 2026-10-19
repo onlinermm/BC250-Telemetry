@@ -12,7 +12,8 @@ import threading
 import time
 
 from bc250_smu import Bc250Smu, SmuError
-from patcher import HANDLER_REG, MODES, check_platform, ensure_patch, identify_installed, load_payload
+from patcher import (HANDLER_REG, MODES, PACKED_PAYLOADS, check_platform, ensure_patch,
+                     identify_installed, load_payload)
 
 RUNTIME_DIR = Path('/run/bc250-memory')
 # The in-kernel bc250_memory driver (linux-cachyos-bc250, bc250-memory-dkms)
@@ -28,6 +29,19 @@ EMPTY_HANDLER_REJECTION = {
     'state': 'failed',
     'error': 'unexpected original Q3/5 handler: 0x00000000',
 }
+# Reader-only mode never unlocks or writes; it raises this after completed
+# reads when the installed payload is unknown (e.g. a newer BIOS build than
+# the collector knew). Such a guard leaves SMU exactly as firmware set it up.
+READER_ONLY_REJECTION = 'no known temperature payload installed (Q3/5 handler 0x'
+
+
+def retryable_rejection(previous):
+    """True for a failed guard known to precede any SMU write."""
+    if previous == EMPTY_HANDLER_REJECTION:
+        return True
+    return (isinstance(previous, dict) and set(previous) == {'state', 'error'}
+            and previous['state'] == 'failed' and isinstance(previous['error'], str)
+            and previous['error'].startswith(READER_ONLY_REJECTION))
 
 
 def atomic_json(path, data):
@@ -58,12 +72,35 @@ def unavailable(status, error=None):
             'raw': [], 'sampled_boottime_s': time.clock_gettime(time.CLOCK_BOOTTIME)}
 
 
-def sample(smu):
+# Bounded-wait payloads report firmware polling timeouts in place of MR3:
+# full words for Q3/5, bytes for Q3/6. Stage 1 waits for the MRR request to
+# be accepted, stage 2 for the MR3 value to arrive.
+SINGLE_TIMEOUTS = {0xFFFFFFFF: 1, 0xFFFFFFFE: 2}
+PACKED_TIMEOUTS = {0xFF: 1, 0xFE: 2}
+
+
+def read_raw(smu, packed=False):
+    """Eight raw values: MR3 words (Q3/5) or MR3 low bytes (Q3/6 packed)."""
+    if not packed:
+        return [smu.read_chip(chip) for chip in range(8)]
+    raw = [0] * 8
+    for parity in (0, 1):
+        word = smu.read_packed(parity)
+        for n in range(4):
+            raw[parity + 2 * n] = (word >> (8 * n)) & 0xFF
+    return raw
+
+
+def sample(smu, packed=False):
     started = time.clock_gettime(time.CLOCK_BOOTTIME)
-    raw = [smu.read_chip(chip) for chip in range(8)]
+    raw = read_raw(smu, packed)
+    sentinels = PACKED_TIMEOUTS if packed else SINGLE_TIMEOUTS
+    timeouts = [f'chip {chip} stage {sentinels[value]}' for chip, value in enumerate(raw) if value in sentinels]
     codes = [value & 0xFF for value in raw]
-    if any(value > 80 for value in codes):
-        result = unavailable('invalid_reading', 'temperature code outside JEDEC range 0..80')
+    if timeouts or any(value > 80 for value in codes):
+        error = ('firmware MR3 read timeout: ' + ', '.join(timeouts) if timeouts
+                 else 'temperature code outside JEDEC range 0..80')
+        result = unavailable('invalid_reading', error)
         result['raw'] = raw
         result['sampled_boottime_s'] = started
         return result
@@ -103,20 +140,20 @@ def run(runtime=RUNTIME_DIR, interval=3.0, mode='auto'):
             payload = load_payload()  # Must precede any SMU access.
             check_platform(strict_bios=mode != 'reader-only')
             previous = None
-            retry_empty_slot = False
             if guard.exists():
                 previous = json.loads(guard.read_text())
-                retry_empty_slot = previous == EMPTY_HANDLER_REJECTION
-                if not retry_empty_slot and (not isinstance(previous, dict) or previous.get('state') != 'ready'):
+                if retryable_rejection(previous):
+                    logging.info('Retrying the earlier rejection (%s); that attempt wrote nothing to SMU',
+                                 previous['error'])
+                    previous = None
+                elif not isinstance(previous, dict) or previous.get('state') != 'ready':
                     raise SmuError('previous SMU operation did not finish; reboot before retrying')
-                if retry_empty_slot:
-                    logging.info('Retrying the earlier empty-handler rejection; no patch was written by that attempt')
             # Opening the descriptor does not issue commands. An access-denied
             # error here should not poison the rest of the boot.
             smu = Bc250Smu()
             atomic_json(guard, {'state': 'preparing'})
             hardware_started = True
-            state = ensure_patch(smu, payload, allow_install=previous is None or retry_empty_slot, mode=mode)
+            state = ensure_patch(smu, payload, allow_install=previous is None, mode=mode)
             # Remember that firmware, not this host, installed the payload, so
             # the installer's --probe can tell the two apart later this boot.
             extra = {}
@@ -125,10 +162,13 @@ def run(runtime=RUNTIME_DIR, interval=3.0, mode='auto'):
                 extra = {'source': 'firmware'}
             atomic_json(guard, {'state': 'ready', **extra})
             described = {'patched': 'SMU payload installed',
-                         'already_patched': 'SMU payload already installed this boot',
+                         'already_patched_modern': 'SMU payload already installed',
+                         'already_patched_original': 'original SMU payload already installed (BIOS/EFI)',
                          'already_patched_bounded': 'bounded SMU payload already installed (BIOS/EFI)'}
-            logging.info('%s; polling eight chips every %.1f seconds',
-                         described.get(state, f'SMU {state}'), interval)
+            packed = state == 'patched' or state.removeprefix('already_patched_') in PACKED_PAYLOADS
+            logging.info('%s; polling eight chips every %.1f seconds (%s reads)',
+                         described.get(state, f'SMU {state}'), interval,
+                         'packed Q3/6' if packed else 'single Q3/5')
             while not STOP.is_set():
                 if kernel_driver_loaded():
                     logging.warning('bc250_memory kernel driver was loaded; stopping the collector '
@@ -137,7 +177,7 @@ def run(runtime=RUNTIME_DIR, interval=3.0, mode='auto'):
                 # Mark each transaction too: a killed reader must not be
                 # restarted onto a potentially still-running firmware request.
                 atomic_json(guard, {'state': 'reading', **extra})
-                result = sample(smu)
+                result = sample(smu, packed)
                 atomic_json(guard, {'state': 'ready', **extra})
                 publish_snapshot(output, result)
                 STOP.wait(interval)
@@ -155,14 +195,14 @@ def run(runtime=RUNTIME_DIR, interval=3.0, mode='auto'):
                 smu.close()
 
 
-PROBE_EXIT = {'firmware-original': 0, 'firmware-bounded': 0, 'none': 3, 'unknown': 4, 'linux': 5}
+PROBE_EXIT = {'firmware-original': 0, 'firmware-bounded': 0, 'firmware-modern': 0, 'none': 3, 'unknown': 4, 'linux': 5}
 
 
 def probe(runtime=RUNTIME_DIR):
     """Read-only: report which temperature payload is installed, and by whom.
 
     Never unlocks and never writes SMU SRAM. Labels: firmware-original,
-    firmware-bounded, none (empty slot), unknown (foreign handler or modified
+    firmware-bounded, firmware-modern, none (empty slot), unknown (foreign handler or modified
     bytes), linux (this host already used the SMU this boot, so the payload's
     origin cannot be told). Raises SmuError/OSError when the SMU is unusable.
     """
@@ -176,6 +216,8 @@ def probe(runtime=RUNTIME_DIR):
             raise SmuError('another memory collector owns the SMU lock')
         guard = runtime / 'patch-state.json'
         previous = json.loads(guard.read_text()) if guard.exists() else None
+        if retryable_rejection(previous):
+            previous = None
         if previous is not None and (not isinstance(previous, dict) or previous.get('state') != 'ready'):
             raise SmuError('previous SMU operation did not finish; reboot before retrying')
         origin = None if previous is None else previous.get('source')

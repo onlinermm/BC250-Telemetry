@@ -1,0 +1,14 @@
+queue_write_status_qid A 00000fa8 
+queue_store_word_head_for_qid A 00000fe4 
+queue_read_head_for_qid A 00000ffc 
+umc_read A 000029f8 
+umc_write A 00002a74 
+reg_dump T 0003aab4 0000005e
+umc_read_temp_per_chip T 0003ab34 000000f6
+umc_read_temp_packed T 0003ac34 0000011e
+regdump_read T 0003ad54 00000042
+regdump_arr B 0003ad98 00000080
+c$1496 b 0003ae18 00000004
+c$1492 b 0003ae1c 00000004
+c$1481 b 0003ae20 00000004
+c$1477 b 0003ae24 00000004

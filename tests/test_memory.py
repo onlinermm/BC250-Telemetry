@@ -61,6 +61,12 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(self.transport.regs[0x03B10A8C], 0xDEADBEEF)
         self.assertEqual(self.transport.writes, [(0x03B10A80, 0), (0x03B10A88, 3), (0x03B10A20, 5)])
 
+    def test_packed_command_uses_q3_6(self):
+        self.smu.read_packed(1)
+        self.assertEqual(self.transport.writes, [(0x03B10A80, 0), (0x03B10A88, 1), (0x03B10A20, 6)])
+        for parity in (-1, 2, True):
+            with self.assertRaises(ValueError): self.smu.read_packed(parity)
+
     def test_transfer_retains_six_argument_layout(self):
         self.smu.transfer_engine_dram2smu(1, 2, 3, 4)
         values = [self.transport.regs[0x03B10998 + i*4] for i in range(6)]
@@ -171,6 +177,7 @@ class SramSmu:
     def __init__(self):
         self.memory = bytearray(0x40000)
         self.memory[patcher.HANDLER_REG:patcher.HANDLER_REG+4] = (0x1234).to_bytes(4, 'little')
+        self.memory[0:4] = patcher.SMU_VERSION.to_bytes(4, 'little')
         self.writes = []
         self.drop_payload = False
 
@@ -206,70 +213,111 @@ class DmaReadTests(unittest.TestCase):
 
 
 class PatcherTests(unittest.TestCase):
-    def test_pinned_bin_and_elf_agree(self):
-        binary = patcher.load_payload()
-        elf = (ROOT / 'memory/payload/SMUPayload.elf').read_bytes()
-        hdr = struct.unpack_from('<16sHHIIIIIHHHHHH', elf)
-        sections = [struct.unpack_from('<10I', elf, hdr[6] + i*hdr[11]) for i in range(hdr[12])]
-        text = sections[1]
-        self.assertEqual(text[3], patcher.PAYLOAD_START)
-        self.assertEqual(binary, elf[text[4]:text[4]+text[5]])
-        symtab = next(s for s in sections if s[1] == 2)
-        string_section = sections[symtab[6]]
-        strings = elf[string_section[4]:string_section[4]+string_section[5]]
-        found = {}
-        for offset in range(symtab[4], symtab[4]+symtab[5], symtab[9]):
-            name, value, *_ = struct.unpack_from('<IIIBBH', elf, offset)
-            found[strings[name:].split(b'\0')[0]] = value
-        self.assertEqual(found[b'umc_read_temp_per_chip'], patcher.HANDLER)
+    HOOK_REGS = (patcher.PACKED_HANDLER_REG, patcher.REGDUMP_HANDLER_REG, patcher.HANDLER_REG)
+
+    def test_pinned_bin_and_symbols_agree(self):
+        payload = patcher.load_payload()
+        self.assertEqual(len(payload), patcher.PAYLOAD_SIZE + patcher.BSS_SIZE)
+        self.assertEqual(payload[patcher.PAYLOAD_SIZE:], bytes(patcher.BSS_SIZE))
+        symbols = {}
+        for line in (ROOT / 'memory/payload/SMUPayload.symbols').read_text().splitlines():
+            name, kind, value, *size = line.split()
+            symbols[name] = (kind, int(value, 16), int(size[0], 16) if size else 0)
+        end = patcher.PAYLOAD_START + patcher.PAYLOAD_SIZE
+        for reg, name in zip(self.HOOK_REGS, ('umc_read_temp_packed', 'regdump_read', 'umc_read_temp_per_chip')):
+            kind, address, size = symbols[name]
+            self.assertEqual((kind, address), ('T', patcher.HOOKS[reg]))
+            self.assertLessEqual(address + size, end)
+        # BSS (dumps and polling counters) is exactly the zeroed tail.
+        bss = [(address, size) for kind, address, size in symbols.values() if kind in 'bB']
+        self.assertEqual(min(a for a, _ in bss), end)
+        self.assertEqual(max(a + n for a, n in bss), end + patcher.BSS_SIZE)
+        self.assertEqual(patcher.KNOWN_PAYLOADS[0][:4],
+                         ('modern', patcher.HANDLER, patcher.PAYLOAD_SIZE, patcher.PAYLOAD_SHA256))
 
     def test_rejects_empty_truncated_and_modified_payload(self):
-        good = patcher.load_payload()
+        good = patcher.load_payload()[:patcher.PAYLOAD_SIZE]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'payload'
-            for data in (b'', good[:-4], b'\xff'*len(good), good + b'\0'):
+            for data in (b'', good[:-4], b'\xff'*len(good), good + b'\0'*4):
                 path.write_bytes(data)
                 with self.assertRaises(SmuError): patcher.load_payload(path)
 
-    def test_install_verifies_before_handler_and_restart_skips_unlock(self):
+    def assert_hooks_installed(self, smu):
+        for reg, entry in patcher.HOOKS.items():
+            self.assertEqual(smu.smu_read(reg), entry.to_bytes(4, 'little'))
+
+    def test_install_verifies_before_handlers_and_restart_skips_unlock(self):
         smu = SramSmu()
         payload = patcher.load_payload()
         with patch.object(patcher, 'unlock') as unlock_mock:
             self.assertEqual(patcher.ensure_patch(smu, payload), 'patched')
-            self.assertEqual(smu.writes[-1], (patcher.HANDLER_REG, patcher.HANDLER))
+            # Code and BSS first, then the hooks with Q3/5 last.
+            self.assertEqual([addr for addr, _ in smu.writes[-3:]], list(self.HOOK_REGS))
+            self.assertEqual(len(smu.writes), len(payload) // 4 + 3)
+            self.assert_hooks_installed(smu)
             count = len(smu.writes)
-            self.assertEqual(patcher.ensure_patch(smu, payload, allow_install=False), 'already_patched')
+            self.assertEqual(patcher.ensure_patch(smu, payload, allow_install=False), 'already_patched_modern')
             self.assertEqual(len(smu.writes), count)
             unlock_mock.assert_called_once_with(smu)
 
-    def test_payload_readback_failure_never_switches_handler(self):
+    def test_occupied_region_is_never_overwritten(self):
+        size = patcher.PAYLOAD_SIZE + patcher.BSS_SIZE
+        for offset in (0, patcher.PAYLOAD_SIZE, size - 1):
+            with self.subTest(offset=offset):
+                smu = SramSmu()
+                smu.memory[patcher.PAYLOAD_START + offset] = 0x5A
+                with patch.object(patcher, 'unlock') as unlock_mock, \
+                        self.assertRaisesRegex(SmuError, 'not empty'):
+                    patcher.ensure_patch(smu, patcher.load_payload())
+                unlock_mock.assert_not_called()
+                self.assertEqual(smu.writes, [])
+        # The byte after the region is not ours and does not block installation.
+        smu = SramSmu()
+        smu.memory[patcher.PAYLOAD_START + size] = 0x5A
+        with patch.object(patcher, 'unlock'):
+            self.assertEqual(patcher.ensure_patch(smu, patcher.load_payload()), 'patched')
+
+    def test_payload_readback_failure_never_switches_handlers(self):
         smu = SramSmu()
         smu.drop_payload = True
         with patch.object(patcher, 'unlock'), self.assertRaises(SmuError):
             patcher.ensure_patch(smu, patcher.load_payload())
-        self.assertNotIn(patcher.HANDLER_REG, [addr for addr, _ in smu.writes])
+        self.assertFalse(set(patcher.HOOKS) & {addr for addr, _ in smu.writes})
 
-    def test_empty_handler_can_be_installed_once(self):
+    def test_empty_handlers_can_be_installed_once(self):
         smu = SramSmu()
         smu.memory[patcher.HANDLER_REG:patcher.HANDLER_REG + 4] = bytes(4)
         payload = patcher.load_payload()
         with patch.object(patcher, 'unlock') as unlock_mock:
             self.assertEqual(patcher.ensure_patch(smu, payload), 'patched')
-            self.assertEqual(smu.writes[-1], (patcher.HANDLER_REG, patcher.HANDLER))
+            self.assert_hooks_installed(smu)
             writes = list(smu.writes)
-            self.assertEqual(patcher.ensure_patch(smu, payload, allow_install=False), 'already_patched')
+            self.assertEqual(patcher.ensure_patch(smu, payload, allow_install=False), 'already_patched_modern')
             self.assertEqual(smu.writes, writes)
             unlock_mock.assert_called_once()
 
-    def test_empty_handler_after_ready_and_invalid_pointers_are_rejected(self):
-        for current, allow in ((0, False), (1, True), (0xFFFFFFFF, True), (patcher.PAYLOAD_START, True)):
-            with self.subTest(current=current, allow_install=allow):
+    def test_invalid_existing_handlers_are_rejected(self):
+        cases = [(patcher.HANDLER_REG, 0, False)]
+        for reg in patcher.HOOKS:
+            cases += [(reg, 1, True), (reg, 0xFFFFFFFF, True), (reg, patcher.PAYLOAD_START, True),
+                      (reg, patcher.HOOKS[reg], True) if reg != patcher.HANDLER_REG else (reg, 0x3AAC4, True)]
+        for reg, current, allow in cases:
+            with self.subTest(reg=hex(reg), current=hex(current), allow_install=allow):
                 smu = SramSmu()
-                smu.memory[patcher.HANDLER_REG:patcher.HANDLER_REG + 4] = current.to_bytes(4, 'little')
+                smu.memory[reg:reg + 4] = current.to_bytes(4, 'little')
                 with patch.object(patcher, 'unlock') as unlock_mock, self.assertRaises(SmuError):
                     patcher.ensure_patch(smu, patcher.load_payload(), allow_install=allow)
                 unlock_mock.assert_not_called()
                 self.assertEqual(smu.writes, [])
+
+    def test_wrong_smu_firmware_is_not_unlocked(self):
+        smu = SramSmu()
+        smu.memory[0:4] = (0x00580700).to_bytes(4, 'little')
+        with patch.object(patcher, 'unlock') as unlock_mock, self.assertRaisesRegex(SmuError, 'SMU firmware'):
+            patcher.ensure_patch(smu, patcher.load_payload())
+        unlock_mock.assert_not_called()
+        self.assertEqual(smu.writes, [])
 
     def test_mismatched_existing_patch_and_reinstall_are_rejected(self):
         smu = SramSmu()
@@ -286,34 +334,54 @@ class PatcherTests(unittest.TestCase):
         smu.memory[patcher.HANDLER_REG:patcher.HANDLER_REG + 4] = handler.to_bytes(4, 'little')
         return blob
 
-    def _firmware_original(self, smu):
+    def _firmware_bundled(self, smu, hooks=True):
+        """The bundled image as a BIOS/EFI installs it, with used BSS."""
         payload = patcher.load_payload()
         smu.memory[patcher.PAYLOAD_START:patcher.PAYLOAD_START + len(payload)] = payload
-        smu.memory[patcher.HANDLER_REG:patcher.HANDLER_REG + 4] = patcher.HANDLER.to_bytes(4, 'little')
+        end = patcher.PAYLOAD_START + patcher.PAYLOAD_SIZE
+        # Mutable BSS after the code must not affect identification.
+        smu.memory[end:end + patcher.BSS_SIZE] = b'\x5a' * patcher.BSS_SIZE
+        for reg, entry in patcher.HOOKS.items():
+            if hooks or reg == patcher.HANDLER_REG:
+                smu.memory[reg:reg + 4] = entry.to_bytes(4, 'little')
         return payload
 
-    def test_firmware_original_payload_is_accepted_read_only(self):
+    def test_firmware_bundled_payload_is_accepted_without_writes(self):
         smu = SramSmu()
-        payload = self._firmware_original(smu)
+        self._firmware_bundled(smu)
         with patch.object(patcher, 'unlock') as unlock_mock:
-            self.assertEqual(patcher.ensure_patch(smu, payload, mode='reader-only'), 'already_patched')
-            unlock_mock.assert_not_called()
-        self.assertEqual(smu.writes, [])
-
-    def test_firmware_bounded_payload_is_accepted_by_hash_without_writes(self):
-        smu = SramSmu()
-        blob = self._firmware_install(smu, 0x3AAC8, 212)
-        known = list(patcher.KNOWN_PAYLOADS)
-        known[1] = ('bounded', 0x3AAC8, 212, hashlib.sha256(blob).hexdigest())
-        with patch.object(patcher, 'KNOWN_PAYLOADS', tuple(known)), patch.object(patcher, 'unlock') as unlock_mock:
             for mode in ('auto', 'reader-only'):
                 self.assertEqual(patcher.ensure_patch(smu, patcher.load_payload(), mode=mode),
-                                 'already_patched_bounded')
+                                 'already_patched_modern')
             unlock_mock.assert_not_called()
         self.assertEqual(smu.writes, [])
 
+    def test_firmware_bundled_requires_all_hooks(self):
+        smu = SramSmu()
+        self._firmware_bundled(smu, hooks=False)
+        for mode in ('auto', 'reader-only'):
+            with patch.object(patcher, 'unlock') as unlock_mock, self.assertRaisesRegex(SmuError, 'hook'):
+                patcher.ensure_patch(smu, patcher.load_payload(), mode=mode)
+            unlock_mock.assert_not_called()
+        self.assertEqual(smu.writes, [])
+
+    def test_older_firmware_payloads_are_accepted_by_hash_without_writes(self):
+        for index, name in ((1, 'original'), (2, 'bounded')):
+            smu = SramSmu()
+            _, handler, size, _, hooks = patcher.KNOWN_PAYLOADS[index]
+            blob = self._firmware_install(smu, handler, size)
+            known = list(patcher.KNOWN_PAYLOADS)
+            known[index] = (name, handler, size, hashlib.sha256(blob).hexdigest(), hooks)
+            with patch.object(patcher, 'KNOWN_PAYLOADS', tuple(known)), \
+                    patch.object(patcher, 'unlock') as unlock_mock:
+                for mode in ('auto', 'reader-only'):
+                    self.assertEqual(patcher.ensure_patch(smu, patcher.load_payload(), mode=mode),
+                                     f'already_patched_{name}')
+                unlock_mock.assert_not_called()
+            self.assertEqual(smu.writes, [])
+
     def test_known_handler_with_foreign_bytes_is_rejected(self):
-        for handler, size in ((0x3AAC4, 176), (0x3AAC8, 212)):
+        for _, handler, size, _, _ in patcher.KNOWN_PAYLOADS:
             smu = SramSmu()
             self._firmware_install(smu, handler, size)
             with patch.object(patcher, 'unlock') as unlock_mock, self.assertRaises(SmuError):
@@ -441,24 +509,24 @@ def read_memory(path, now=None):
 class ProbeTests(unittest.TestCase):
     """collector.probe(): read-only, never writes SRAM or leaves a bad guard."""
     _firmware_install = PatcherTests._firmware_install
-    _firmware_original = PatcherTests._firmware_original
+    _firmware_bundled = PatcherTests._firmware_bundled
 
     def _probe(self, smu, runtime, **kwargs):
         with patch.object(collector, 'Bc250Smu', return_value=smu), \
                 patch.object(collector, 'kernel_driver_loaded', return_value=False):
             return collector.probe(runtime)
 
-    def test_firmware_original(self):
+    def test_firmware_bundled(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = Path(directory)
             smu = SramSmu(); smu.close = lambda: None
-            self._firmware_original(smu)
-            self.assertEqual(self._probe(smu, runtime), 'firmware-original')
+            self._firmware_bundled(smu)
+            self.assertEqual(self._probe(smu, runtime), 'firmware-modern')
             self.assertEqual(smu.writes, [])
             self.assertEqual(json.loads((runtime / 'patch-state.json').read_text()),
                              {'state': 'ready', 'source': 'firmware'})
             # A repeated probe still knows the BIOS installed it.
-            self.assertEqual(self._probe(smu, runtime), 'firmware-original')
+            self.assertEqual(self._probe(smu, runtime), 'firmware-modern')
 
     def test_empty_slot_leaves_no_guard_so_service_can_install(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -482,7 +550,7 @@ class ProbeTests(unittest.TestCase):
             runtime = Path(directory)
             (runtime / 'patch-state.json').write_text('{"state": "ready"}')
             smu = SramSmu(); smu.close = lambda: None
-            self._firmware_original(smu)
+            self._firmware_bundled(smu)
             self.assertEqual(self._probe(smu, runtime), 'linux')
 
     def test_refusals(self):
@@ -543,6 +611,33 @@ class CollectorAndApiTests(unittest.TestCase):
         smu = Mock()
         smu.read_chip.side_effect = raw if raw is not None else [0x2626, 0x2525, 0x2A2A, 0x2626, 0x2626, 0x2929, 0x2929, 0x2727]
         return collector.sample(smu)
+
+    def test_packed_sample_unpacks_parity_bytes(self):
+        smu = Mock()
+        # parity 0 -> chips 0,2,4,6; parity 1 -> chips 1,3,5,7 (byte 0 first).
+        smu.read_packed.side_effect = [0x29262A26, 0x27292625]
+        result = collector.sample(smu, packed=True)
+        smu.read_chip.assert_not_called()
+        self.assertEqual(result['raw'], [0x26, 0x25, 0x2A, 0x26, 0x26, 0x29, 0x29, 0x27])
+        self.assertEqual(result['chips_c'], [36, 34, 44, 36, 36, 42, 42, 38])
+        self.assertEqual(read_memory(self._published(result))['hotspot_chip'], 2)
+
+    def test_firmware_timeouts_are_reported_per_chip(self):
+        smu = Mock()
+        smu.read_packed.side_effect = [0x262626FF, 0x26FE2626]
+        result = collector.sample(smu, packed=True)
+        self.assertFalse(result['valid'])
+        self.assertEqual(result['error'], 'firmware MR3 read timeout: chip 0 stage 1, chip 5 stage 2')
+        raw = [0x2626] * 8
+        raw[3] = 0xFFFFFFFE
+        result = self.reading(raw)
+        self.assertEqual((result['status'], result['error']),
+                         ('invalid_reading', 'firmware MR3 read timeout: chip 3 stage 2'))
+
+    def _published(self, result):
+        path = self.root / 'packed.snapshot'
+        collector.publish_snapshot(path, result)
+        return path
 
     def test_sample_and_api_merge_preserve_base(self):
         base = self.root / 'base.json'
@@ -619,7 +714,7 @@ class CollectorAndApiTests(unittest.TestCase):
         smu.memory[patcher.HANDLER_REG:patcher.HANDLER_REG + 4] = bytes(4)
         smu.close = Mock()
         reading = self.reading()
-        def one_sample(device):
+        def one_sample(device, packed=False):
             collector.STOP.set()
             self.assertEqual(device.smu_read(patcher.HANDLER_REG), patcher.HANDLER.to_bytes(4, 'little'))
             return reading
@@ -633,6 +728,34 @@ class CollectorAndApiTests(unittest.TestCase):
             self.assertEqual(collector.run(self.root), 0)
             self.assertEqual(smu.writes, writes)
             unlock_mock.assert_called_once()
+
+    READER_ONLY_FAILURE = {'state': 'failed', 'error': 'no known temperature payload installed '
+                           '(Q3/5 handler 0x0003ab34); enable it in BIOS/EFI or use mode=auto'}
+
+    def test_reader_only_rejection_is_retried_and_recognizes_firmware(self):
+        guard = self.root/'patch-state.json'
+        collector.atomic_json(guard, self.READER_ONLY_FAILURE)
+        reading = self.reading()
+        def one_sample(device, packed=False):
+            collector.STOP.set()
+            self.assertTrue(packed)
+            return reading
+        with patch.object(collector, 'check_platform'), patch.object(collector, 'Bc250Smu'), \
+                patch.object(collector, 'ensure_patch', return_value='already_patched_modern') as prepare, \
+                patch.object(collector, 'sample', side_effect=one_sample), self.assertLogs(level=logging.INFO):
+            self.assertEqual(collector.run(self.root, mode='reader-only'), 0)
+        self.assertTrue(prepare.call_args.kwargs['allow_install'])
+        self.assertEqual(json.loads(guard.read_text()), {'state': 'ready', 'source': 'firmware'})
+
+    def test_other_failures_are_not_retryable(self):
+        for previous in ({'state': 'failed', 'error': 'queue 3 msg 0x05 timed out'},
+                         {'state': 'reading'}, {'state': 'preparing'},
+                         dict(self.READER_ONLY_FAILURE, source='firmware'),
+                         {'state': 'failed', 'error': 'x ' + self.READER_ONLY_FAILURE['error']}):
+            with self.subTest(previous=previous):
+                self.assertFalse(collector.retryable_rejection(previous))
+        self.assertTrue(collector.retryable_rejection(self.READER_ONLY_FAILURE))
+        self.assertTrue(collector.retryable_rejection(collector.EMPTY_HANDLER_REJECTION))
 
     def test_pci_open_failure_does_not_create_operation_guard(self):
         with patch.object(collector, 'check_platform'), \
@@ -650,19 +773,20 @@ class CollectorAndApiTests(unittest.TestCase):
 
     def test_timeout_is_published_and_blocks_retry(self):
         smu = Mock()
-        smu.read_chip.side_effect = SmuTimeout(3, 5)
+        smu.read_packed.side_effect = SmuTimeout(3, 6)
         with patch.object(collector, 'check_platform'), \
                 patch.object(collector, 'ensure_patch', return_value='patched'), \
                 patch.object(collector, 'Bc250Smu', return_value=smu), self.assertLogs(level=logging.ERROR):
             self.assertEqual(collector.run(self.root), 1)
-        self.assertEqual(smu.read_chip.call_count, 1)
+        self.assertEqual(smu.read_packed.call_count, 1)
+        smu.read_chip.assert_not_called()
         smu.close.assert_called_once()
         self.assertEqual(json.loads((self.root/'patch-state.json').read_text())['state'], 'failed')
         self.assertFalse(read_memory(self.root/'telemetry')['valid'])
 
     def test_successful_start_then_clean_stop_preserves_ready_guard(self):
         reading = self.reading()
-        def one_sample(smu):
+        def one_sample(smu, packed=False):
             collector.STOP.set()
             return reading
         with patch.object(collector, 'check_platform'), patch.object(collector, 'ensure_patch') as prepare, \
@@ -686,7 +810,7 @@ class CollectorAndApiTests(unittest.TestCase):
 
     def test_kernel_driver_loaded_later_stops_polling(self):
         reading = self.reading()
-        def driver_appears(smu):
+        def driver_appears(smu, packed=False):
             (self.root / 'no-kernel-driver').mkdir()
             return reading
         with patch.object(collector, 'check_platform'), patch.object(collector, 'ensure_patch'), \

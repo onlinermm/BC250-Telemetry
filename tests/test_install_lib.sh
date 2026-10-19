@@ -140,6 +140,8 @@ MEMORY_PROBE_CMD="echo firmware-original"; resolve_memory_mode
 assert_equals "reader-only" "$MEMORY_MODE" "BIOS-installed original payload selects reader-only"
 MEMORY_PROBE_CMD="echo firmware-bounded"; resolve_memory_mode
 assert_equals "reader-only" "$MEMORY_MODE" "BIOS-installed bounded payload selects reader-only"
+MEMORY_PROBE_CMD="echo firmware-modern"; resolve_memory_mode
+assert_equals "reader-only" "$MEMORY_MODE" "native-firmware modern payload selects reader-only"
 for label in none unknown linux ""; do
     MEMORY_PROBE_CMD="echo $label"; resolve_memory_mode
     assert_equals "auto" "$MEMORY_MODE" "probe result '$label' keeps the default install path"

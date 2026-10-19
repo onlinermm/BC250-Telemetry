@@ -1,5 +1,6 @@
 CC=./xtensa-esp32-elf-gcc-5.2.0/bin/xtensa-esp32-elf-gcc
 OBJCOPY=./xtensa-esp32-elf-gcc-5.2.0/bin/xtensa-esp32-elf-objcopy
+NM=./xtensa-esp32-elf-gcc-5.2.0/bin/xtensa-esp32-elf-nm
 
 CFLAGS = -mlongcalls \
            -mtext-section-literals \
@@ -20,8 +21,9 @@ NAME=SMUPayload
 
 ELF=$(NAME).elf
 BIN=$(NAME).bin
+SYMBOLS=$(NAME).symbols
 
-all: $(BIN)
+all: $(BIN) $(SYMBOLS)
 
 
 %.o: %.c $(DEPS)
@@ -36,6 +38,9 @@ $(NAME).elf: $(OBJS) smu3.ld
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@
 
+$(SYMBOLS): $(ELF)
+	$(NM) --defined-only --numeric-sort --format=posix $< > $@
+
 .PHONY: clean
 clean:
-	rm -rf $(ELF) $(BIN) $(OBJS)
+	rm -rf $(ELF) $(BIN) $(SYMBOLS) $(OBJS)

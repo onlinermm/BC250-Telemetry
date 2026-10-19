@@ -66,13 +66,16 @@ mailbox queue. The collector's own lock in
 
 Before opening PCI config space, the collector validates the pinned payload
 size/hash and platform. It checks for an already-installed matching patch, or
-unlocks SMU, uploads the payload, reads it back, then switches and verifies the
-Q3/5 handler. Successful restarts reuse the existing matching patch.
-An initially empty Q3/5 slot (`0x00000000`) is accepted. It is filled only after
-the uploaded payload passes readback verification.
+checks the SMU firmware version and that the payload region is entirely
+empty, unlocks SMU, uploads the payload with zeroed BSS, reads it back, then switches and verifies the Q3/5, Q3/6 and Q3/7
+handlers. Successful restarts reuse the existing matching patch. Initially
+empty slots (`0x00000000`) are accepted; they are filled only after the
+uploaded payload passes readback verification.
 
-The firmware payload retains upstream's unbounded UMC waits. Python stops
-waiting after five seconds, but cannot cancel firmware execution. The service
+The collector reads all eight chips with two packed Q3/6 requests. Firmware
+waits are bounded, so a stuck chip is reported as a read timeout instead of
+hanging the SMU. Python additionally stops waiting after five seconds, but
+cannot cancel firmware execution. The service
 has `Restart=no`. SMU/transport failures or interruption during a transaction
 leave `/run/bc250-memory/patch-state.json` blocking subsequent attempts in the
 same boot. Reboot (a cold power cycle may be needed for a wedged SMU) before
@@ -86,8 +89,7 @@ completed SRAM reads, before unlocking or writing the patch. The updated
 service repeats validation and can install into the empty slot. This exception
 does not allow retrying timeouts, interrupted operations or failed writes.
 
-The C payload and firmware calling conventions have not been validated on
-hardware by this integration. See `UPSTREAM.md` for provenance and local fixes.
+See `UPSTREAM.md` for provenance and local fixes.
 
 ## Data contract
 
@@ -154,23 +156,16 @@ Tests use fake SMU/PCI/DMA interfaces and never patch real hardware.
 
 ## Payload installed by BIOS/EFI (reader-only)
 
-If the firmware installs the single-chip temperature payload before Linux starts
-(after MeiMei SMU Unlock), the collector only reads it:
+If the BIOS already installs the temperature payload, the collector only
+reads it and never unlocks or writes SMU:
 
     collector.py --mode reader-only      # or BC250_MEMORY_MODE=reader-only
-    collector.py --probe                 # read-only: firmware-original|firmware-bounded|none|unknown|linux
+    collector.py --probe                 # firmware-<name>|none|unknown|linux
 
-- Never runs the unlock exploit and never writes SMU SRAM.
-- Accepts only known builds, matched by Q3/5 handler **and** SRAM size/SHA-256:
-  `original` (176 B, `0x3AAC4`) and `bounded` (212 B, `0x3AAC8`). An unknown or
-  modified payload is refused, never overwritten.
-- Relaxes only the DMI BIOS-version string; board name, AMD root and the
-  1002:13fe GPU are still required. `auto` (default) also accepts these builds
-  and otherwise installs the payload from Linux (BIOS `P3.00`).
-- ABI unchanged: Q3/5, arg = chip 0..7, `T = code * 2 - 40`. Batch commands
-  0x40/0x41 are **not** supported.
-- `install.sh` runs `--probe` (`--memory-mode=detect`, the default) and, when the
-  BIOS payload is found, writes `/etc/bc250-memory.conf` with
-  `BC250_MEMORY_MODE=reader-only`, which the unit reads. Force with
-  `--memory-mode=reader-only|auto`. The probe is skipped while the service runs.
-- The in-kernel `bc250_memory` driver still takes precedence and is not touched.
+- Known payloads are identified by their code hash: `original`, `bounded` and
+  `modern`. An unknown payload is refused, never overwritten.
+- With `modern`, all eight chips are read in two packed requests, and a
+  firmware read timeout is reported per chip instead of hanging the SMU.
+- `install.sh` runs `--probe` and selects `reader-only` automatically when a
+  BIOS payload is found. Force with `--memory-mode=reader-only|auto`.
+- The in-kernel `bc250_memory` driver still takes precedence.

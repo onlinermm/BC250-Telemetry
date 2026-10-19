@@ -71,3 +71,9 @@ class Bc250Smu(PrimitiveMixin):
         if type(chip) is not int or not 0 <= chip < 8:
             raise ValueError('chip must be in 0..7')
         return self.send_message(3, 5, [chip])[1]
+
+    def read_packed(self, parity):
+        """Q3/6: low bytes of UMC parity+0/+2/+4/+6 in bytes 0..3 (modern payload)."""
+        if type(parity) is not int or parity not in (0, 1):
+            raise ValueError('parity must be 0 or 1')
+        return self.send_message(3, 6, [parity])[1]

@@ -104,7 +104,7 @@ resolve_memory_mode() {
     local label=""
     label="$(${MEMORY_PROBE_CMD:-sudo python3 -B "$SCRIPT_DIR/memory/collector.py" --probe} 2>/dev/null | tail -n1)" || true
     case "$label" in
-        firmware-original|firmware-bounded)
+        firmware-original|firmware-bounded|firmware-modern)
             MEMORY_MODE=reader-only
             MEMORY_MODE_NOTE="BIOS already installed the temperature payload (${label#firmware-}); no unlock needed" ;;
         none)
