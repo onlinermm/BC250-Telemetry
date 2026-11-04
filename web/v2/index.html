@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BC-250 HUD · v2</title>
     <link rel="icon" type="image/svg+xml" href="/favicon-pulse.svg">
-    <link rel="stylesheet" href="style.css?v=b03230234c17">
+    <link rel="stylesheet" href="style.css?v=cab65a16859b">
     <link rel="stylesheet" href="bc250-board.css?v=5207f569adac">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 </head>
@@ -66,8 +66,8 @@
                                 </radialGradient>
                                 <radialGradient id="bc-vrm-blue"><stop offset="0%" stop-color="#38bdf8" stop-opacity=".9"></stop><stop offset="100%" stop-color="#38bdf8" stop-opacity="0"></stop></radialGradient>
                                 <radialGradient id="bc-vrm-orange"><stop offset="0%" stop-color="#fb923c" stop-opacity=".9"></stop><stop offset="100%" stop-color="#fb923c" stop-opacity="0"></stop></radialGradient>
-                                <linearGradient id="bc-pcb" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1f2c48"></stop><stop offset="100%" stop-color="#141f38"></stop></linearGradient>
-                                <linearGradient id="bc-sink" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#55668a"></stop><stop offset="50%" stop-color="#3b4b6c"></stop><stop offset="100%" stop-color="#28344e"></stop></linearGradient>
+                                <linearGradient id="bc-pcb" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#1f2c48"></stop><stop offset="100%" stop-color="#141f38"></stop></linearGradient>
+                                <linearGradient id="bc-sink" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#55668a"></stop><stop offset="50%" stop-color="#3b4b6c"></stop><stop offset="100%" stop-color="#28344e"></stop></linearGradient>
                                 <radialGradient id="bc-memory-gradient-0" color="#38bdf8">
                                     <stop offset="0%" stop-color="currentColor" stop-opacity=".85"></stop>
                                     <stop offset="45%" stop-color="currentColor" stop-opacity=".5"></stop>
@@ -115,8 +115,37 @@
                                  the heatsink footprint is the 12-vertex face where it meets the board.
                                  Component positions are placed at their real coordinates, mapped into the
                                  STEP frame - checked against the 8-pin, which lands on its own solid. -->
-                            <g id="bc-iso">
-                                <polygon points="587.2,330.2 74.4,330.2 74.4,28.2 833.7,28.2 833.7,383.9 587.2,383.9" fill="#000" opacity=".3" transform="translate(4,5)"></polygon>
+                            <!-- The whole board is turned 180° here. Coordinates inside stay in the
+                                 unrotated STEP frame, so "bottom" in the comments below means the top
+                                 of the rendered image. The centre (450,206) is the middle of the board,
+                                 so it keeps its place in the viewBox. -->
+                            <g id="bc-iso" transform="rotate(180 450 206)">
+                                <!-- backplate fan: drawn first so the PCB hides most of it and only its edge peeks out past the board -->
+                                <g id="bc-backplate-fan" transform="translate(395,235)" style="display:none">
+                                    <rect x="-147.3" y="-147.3" width="294.6" height="294.6" rx="20.6" fill="#141c2c" fill-opacity=".34" stroke="#68737d" stroke-width="1.3"></rect>
+                                    <circle r="139.2" fill="#0c1115" fill-opacity=".16" stroke="#59646e" stroke-width="1"></circle>
+                                    <g fill="#39434c" fill-opacity=".5" stroke="#6d7881" stroke-width="1">
+                                        <circle cx="-124.5" cy="-124.5" r="11.0"></circle>
+                                        <circle cx="-124.5" cy="124.5" r="11.0"></circle>
+                                        <circle cx="124.5" cy="-124.5" r="11.0"></circle>
+                                        <circle cx="124.5" cy="124.5" r="11.0"></circle>
+                                    </g>
+                                    <g id="bc-fan2-blades">
+                                        <g transform="scale(-1,1)" fill="#141c2c" fill-opacity=".34" stroke="#68737d" stroke-width="1.3" stroke-linejoin="round">
+                                            <path d="M44.3 0.0 C82.2 8.6 102.2 46.8 112.1 64.7 A129.456 129.456 0 0 1 54.7 117.3 C52.8 99.3 65.1 46.6 39.8 19.4 Z"></path>
+                                            <path d="M27.6 34.6 C44.5 69.6 27.1 109.1 19.3 128.0 A129.456 129.456 0 0 1 -57.6 115.9 C-44.7 103.2 4.2 80.0 9.6 43.2 Z"></path>
+                                            <path d="M-9.9 43.2 C-26.7 78.2 -68.4 89.2 -88.1 94.9 A129.456 129.456 0 0 1 -126.6 27.2 C-108.5 29.4 -59.9 53.1 -27.8 34.5 Z"></path>
+                                            <path d="M-39.9 19.2 C-77.8 27.9 -112.4 2.2 -129.1 -9.7 A129.456 129.456 0 0 1 -100.2 -82.0 C-90.6 -66.5 -78.9 -13.7 -44.3 -0.2 Z"></path>
+                                            <path d="M-39.9 -19.2 C-70.3 -43.4 -71.8 -86.5 -72.9 -107.0 A129.456 129.456 0 0 1 1.6 -129.4 C-4.5 -112.3 -38.4 -70.2 -27.5 -34.8 Z"></path>
+                                            <path d="M-9.9 -43.2 C-9.9 -82.0 22.9 -110.1 38.2 -123.7 A129.456 129.456 0 0 1 102.2 -79.4 C85.0 -73.5 31.0 -73.8 10.1 -43.1 Z"></path>
+                                            <path d="M27.6 -34.6 C58.0 -58.9 100.3 -50.7 120.5 -47.3 A129.456 129.456 0 0 1 125.8 30.4 C110.5 20.6 77.0 -21.8 40.0 -19.0 Z"></path>
+                                        </g>
+                                        <circle r="43.9" fill="#141c2c" fill-opacity=".34" stroke="#68737d" stroke-width="1.3"></circle>
+                                    </g>
+                                    <circle r="41.8" fill="#1e252b" fill-opacity=".62" stroke="#69747e" stroke-width="1.1"></circle>
+                                    <circle r="17.6" fill="#2c343b" fill-opacity=".75" stroke="#5a656f"></circle>
+                                </g>
+                                <polygon points="587.2,330.2 74.4,330.2 74.4,28.2 833.7,28.2 833.7,383.9 587.2,383.9" fill="#000" opacity=".3" transform="translate(-4,-5)"></polygon>
                                 <polygon points="587.2,330.2 74.4,330.2 74.4,28.2 833.7,28.2 833.7,383.9 587.2,383.9" fill="url(#bc-pcb)" stroke="#3a5185" stroke-width="1.4"></polygon>
                                 <g fill="#0a1020" stroke="#3b4b6c">
                                     <circle cx="93.1" cy="310.6" r="3.6"></circle>
@@ -144,7 +173,7 @@
                                 <polygon points="823.8,46.9 792.8,46.9 792.8,113.2 823.8,113.2" fill="#151d2c" stroke="#42536f" stroke-width="1"></polygon>
                                 <!-- M.2 2280 drive: 22 x 80 mm off the M2_1 socket, clear of the heatsink -->
                                 <g id="bc-m2">
-                                    <rect x="124.7" y="56.6" width="54.8" height="203.3" fill="#000" opacity=".25" transform="translate(3,3)"></rect>
+                                    <rect x="124.7" y="56.6" width="54.8" height="203.3" fill="#000" opacity=".25" transform="translate(-3,-3)"></rect>
                                     <rect x="124.7" y="56.6" width="54.8" height="203.3" rx="2" fill="#22304d" stroke="#4a608a" stroke-width="1"></rect>
                                     <rect x="134.2" y="66.9" width="35.8" height="29.7" rx="1.5" fill="#1a2540" stroke="#475c86"></rect>
                                     <rect x="131.7" y="114.7" width="40.9" height="41.3" rx="1.5" fill="#1c2846" stroke="#475c86"></rect>
@@ -336,7 +365,8 @@
                                             <circle cx="124.5" cy="124.5" r="11.0"></circle>
                                         </g>
                                         <g id="bc-fan1-blades">
-                                            <g fill="#141c2c" fill-opacity=".34" stroke="#68737d" stroke-width="1.3" stroke-linejoin="round">
+                                            <!-- mirrored here, not on #bc-fan1-blades: the spin animation owns that element's transform -->
+                                            <g transform="scale(-1,1)" fill="#141c2c" fill-opacity=".34" stroke="#68737d" stroke-width="1.3" stroke-linejoin="round">
                                                 <path d="M44.3 0.0 C82.2 8.6 102.2 46.8 112.1 64.7 A129.456 129.456 0 0 1 54.7 117.3 C52.8 99.3 65.1 46.6 39.8 19.4 Z"></path>
                                                 <path d="M27.6 34.6 C44.5 69.6 27.1 109.1 19.3 128.0 A129.456 129.456 0 0 1 -57.6 115.9 C-44.7 103.2 4.2 80.0 9.6 43.2 Z"></path>
                                                 <path d="M-9.9 43.2 C-26.7 78.2 -68.4 89.2 -88.1 94.9 A129.456 129.456 0 0 1 -126.6 27.2 C-108.5 29.4 -59.9 53.1 -27.8 34.5 Z"></path>
@@ -393,20 +423,6 @@
                                         <title id="bc-memory-title-7">Chip 7 · U37: unavailable</title>
                                         <ellipse id="bc-memory-glow-7" rx="30" ry="35" fill="url(#bc-memory-gradient-7)" opacity="0"></ellipse>
                                         <rect class="bc-memory-hotspot" x="-14.15" y="-18.2" width="28.3" height="36.4" rx="3" fill="none" stroke="#fb923c" stroke-width="2.2" opacity="0"></rect>
-                                    </g>
-                                </g>
-                                <g id="bc-backplate-fan" transform="translate(720,110)" style="display:none">
-                                    <rect x="-30" y="-30" width="60" height="60" rx="6" fill="#141c2c" fill-opacity=".4" stroke="#68737d"></rect>
-                                    <circle r="27" fill="#0c1115" fill-opacity=".2" stroke="#59646e"></circle>
-                                    <g id="bc-fan2-blades" fill="#3b444d" stroke="#4e5860">
-                                        <rect x="-4" y="-25" width="9" height="18" rx="4"></rect>
-                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(45)"></rect>
-                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(90)"></rect>
-                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(135)"></rect>
-                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(180)"></rect>
-                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(225)"></rect>
-                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(270)"></rect>
-                                        <rect x="-4" y="-25" width="9" height="18" rx="4" transform="rotate(315)"></rect>
                                     </g>
                                 </g>
                             </g>

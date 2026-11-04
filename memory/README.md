@@ -117,14 +117,6 @@ only reads that file and never accesses SMU.
 }
 ```
 
-Indices 0..7 are upstream UMC/chip indices. The v2 illustration uses the board
-owner's supplied top/X-ray mapping: 0=A/U27 (lower left), 1=B/U29 (bottom left
-center), 2=C/U31 (bottom right center), 3=D/U33 (lower right), 4=E/U43 (upper
-right), 5=F/U41 (top right center), 6=G/U39 (top left center), 7=H/U37 (upper
-left). This mapping has not been independently verified on hardware. Halo
-colors interpolate from blue at 20 °C through amber at 70 °C to pink at
-120 °C; these are visualization anchors, not hardware alarm thresholds.
-
 The JEDEC temperature code is the low byte, in 0..80. Code 80
 means **at least 120 °C**: the corresponding chip, average and hotspot values
 are lower bounds, indicated by `saturated` and `saturated_chips`. A zero code

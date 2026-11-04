@@ -24,8 +24,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 INDEX = HERE / 'index.html'
 
-# Physical layout from the board owner's top/X-ray view (see index.html and
-# memory/README.md). Order is the upstream UMC/chip index 0..7.
+# Physical layout from the board owner's top/X-ray view (see index.html).
+# Order is the upstream UMC/chip index 0..7.
 CHIPS = [
     ('U27', 'translate(411.5,257.7) rotate(45)'),
     ('U29', 'translate(472.9,297.1) rotate(0)'),

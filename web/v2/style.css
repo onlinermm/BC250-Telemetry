@@ -127,8 +127,6 @@ body {
     gap: 10px 12px;
     padding: 16px;
 }
-/* 3 columns once the second (backplate) fan shows up */
-.board-hero.has-backfan { grid-template-columns: 1fr 1fr 1fr; }
 .board-hero-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .board-hero-item.align-end { align-items: flex-end; }
 .board-hero-item .lbl { font-size: 10px; letter-spacing: 1.4px; color: var(--text-muted); }
@@ -138,6 +136,26 @@ body {
 .board-hero-item .unit { font-size: 17px; font-weight: 800; color: var(--text-muted); }
 .board-hero-item .unit-amber { color: var(--accent-amber); }
 .ppt-item .val { color: var(--accent-amber); }
+
+/* Three columns once the second (backplate) fan shows up. SMU PPT keeps its
+   full size and its natural width; the fan figures share what is left, scale
+   with the hero's own width (the card can be narrow) and keep labels on one
+   line. */
+@media (min-width: 361px) {
+    .board-hero.has-backfan {
+        container-type: inline-size;
+        grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+        gap: 10px 6px;
+    }
+    .board-hero.has-backfan .ppt-item .val { font-size: clamp(28px, 11.2cqi, 38px); }
+    .board-hero.has-backfan .align-end .lbl { font-size: 9px; letter-spacing: 0; white-space: nowrap; }
+    .board-hero.has-backfan .align-end .fan-pwm-inline { font-size: 10px; }
+    .board-hero.has-backfan .align-end .val { font-size: clamp(20px, 7.6cqi, 38px); letter-spacing: -.5px; }
+    .board-hero.has-backfan .align-end .unit { font-size: clamp(10px, 3.2cqi, 17px); }
+    @container (max-width: 320px) {
+        .board-hero.has-backfan .align-end .lbl { white-space: normal; text-align: right; }
+    }
+}
 
 /* SMU PPT: warning colors as we approach the power limits — same as v1 */
 .ppt-item.ppt-warning .val { color: var(--status-warning); text-shadow: 0 0 12px rgba(251, 191, 36, .4); }
@@ -391,7 +409,7 @@ body {
    device widths (~360-430px); only stack below that, instead of stacking
    already at 640px where a card still has plenty of room. */
 @media (max-width: 360px) {
-    .board-hero, .board-hero.has-backfan { grid-template-columns: 1fr; }
+    .board-hero { grid-template-columns: 1fr; }
     .board-hero-item.align-end { align-items: flex-start; }
     .board-hero-item .val { font-size: 30px; }
 }
