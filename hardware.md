@@ -7,6 +7,9 @@
 
 This guide covers the physical mod required to get I2C/PMBus telemetry working on the BC-250. Software setup is covered in the main [README](README.md) — this doc is *just* the hardware side.
 
+> [!NOTE]
+> With the `bc250_vrm` kernel driver 1.1.0 or newer you don't need this mod: the driver reads the VRM over a path that already exists on the board. See [Kernel drivers](README.md#kernel-drivers-bc250_vrm--bc250_memory). The mod is for systems where that driver isn't available.
+
 ## Why you need to do this
 
 **`I2C_HEADER1` and `TPMS1` are not connected to each other on the board — at all.** There's no trace, no existing link, nothing. This guide is about creating that connection yourself, with two jumper wires, so the board can actually talk to the PMBus controller sitting on that bus.

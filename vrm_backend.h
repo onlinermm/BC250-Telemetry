@@ -5,6 +5,8 @@
 //    built into linux-cachyos-bc250). Preferred whenever it is bound: the
 //    kernel then owns the device and serializes every PAGE+READ pair.
 //  * Pmbus     — direct /dev/i2c-N access, for systems without that driver.
+//    Needs the SMBus hardware mod; bc250_vrm >= 1.1.0 does not, it reaches the
+//    PMIC through the NCT6687 SMBus master on an I2C adapter of its own.
 //
 // The two must never run at the same time: our PAGE write could land between
 // the driver's PAGE write and its READ (wrong-rail values), and probing other
@@ -43,7 +45,7 @@ struct Rail {
 
 // ---------------------------------------------------------------- hwmon ---
 
-// Channel layout of bc250_vrm 1.0.0. Labels are matched first; the indices
+// Channel layout of bc250_vrm 1.0.0 and 1.1.0. Labels are matched first; the indices
 // are only a fallback in case a future driver renames a label.
 struct ChannelSpec { const char *label; const char *fallback; };
 static constexpr ChannelSpec VIN_SPEC = {"VIN (12V Input)", "in0_input"};
@@ -93,10 +95,11 @@ public:
     // holds the most recent failure.
     //
     // A rail is valid when VIN, VOUT and the temperature are usable. Current
-    // is deliberately NOT required: near 0 A (idle) the PMIC reports values the
-    // driver rejects with EIO about a quarter of the time, while every other
-    // channel on the same bus keeps answering. A failed current read is then a
-    // genuine "about zero", so it must not take the temperature down with it.
+    // is deliberately NOT required: near 0 A (idle) the PMIC reports small
+    // negative values, which bc250_vrm 1.0.0 rejects with EIO about a quarter
+    // of the time (1.1.0 clamps them to 0), while every other channel on the
+    // same bus keeps answering. A failed current read is then a genuine
+    // "about zero", so it must not take the temperature down with it.
     int read(Rail &cpu, Rail &gpu, double now) {
         int fresh = 0;
         streak_ = 0;
@@ -188,8 +191,8 @@ static constexpr uint8_t PMBUS_ADDR = 0x60;
 
 // I2C adapters that may carry the PMIC: the AMD FCH SMBus (i2c_piix4).
 // Port 0 first — that is where the hardware mod wires the VRM and the only
-// port the kernel driver itself looks at. Never AMDGPU DDC/AUX buses: those
-// go to the monitor.
+// port bc250_vrm 1.0.0 looks at. Never AMDGPU DDC/AUX buses: those go to the
+// monitor.
 struct Adapter { int bus; std::string name; };
 
 inline std::vector<Adapter> pmbus_adapters() {
@@ -224,6 +227,19 @@ inline std::string bound_driver(int bus) {
     return name.empty() ? "unknown" : name;
 }
 
+// I2C device (e.g. "9-0060") bound to bc250_vrm on any adapter, or "". Since
+// 1.1.0 that adapter is the driver's own, not PIIX4, yet on a board with the
+// hardware mod PIIX4 still reaches the same PMIC: bound_driver() alone would
+// miss it and let our PAGE writes race the driver's from a second master.
+inline std::string vrm_driver_device() {
+    // The driver directory lists its bound devices next to bind, unbind,
+    // uevent and module; only device names contain a dash.
+    for (const auto &entry : sysfs::list_dir(sysfs::root() + "/bus/i2c/drivers/bc250_vrm")) {
+        if (entry.find('-') != std::string::npos) return entry;
+    }
+    return {};
+}
+
 class Pmbus {
 public:
     enum class Probe { Found, NotFound, NoAccess };
@@ -254,6 +270,15 @@ public:
         return touched ? Probe::NotFound : Probe::NoAccess;
     }
 
+    // READ_IOUT is a signed word: near 0 A the PMIC reports small negative
+    // values, which mean "about zero". Anything outside -5..250 A is bus noise.
+    static bool decode_iout(int32_t raw, float &amps) {
+        const int16_t tenths = static_cast<int16_t>(raw);
+        if (tenths > IOUT_GLITCH_MAX_RAW || tenths < IOUT_GLITCH_MIN_RAW) return false;
+        amps = tenths < 0 ? 0.0f : tenths / 10.0f;
+        return true;
+    }
+
     Rail read(uint8_t page) {
         Rail t;
         if (fd_ < 0) return t;
@@ -269,15 +294,15 @@ public:
         const int32_t temp_raw = read_word(PMBUS_READ_TEMP1);
         if (temp_raw < 0) return t;
         if ((vin_raw == 0 || vin_raw == 0xFFFF) && (vout_raw == 0 || vout_raw == 0xFFFF)) return t;
-        // >250 A is bus noise, not a real current reading.
-        if (iout_raw > IOUT_GLITCH_THRESHOLD_RAW) return t;
+        float iout;
+        if (!decode_iout(iout_raw, iout)) return t;
 
         // Divisors found empirically against a multimeter; they match the
         // kernel driver's scaling (VIN*10 mV, VOUT mV, IOUT*100 mA).
         t.valid = true;
         t.vin = vin_raw / 100.0f;
         t.vout = vout_raw / 1000.0f;
-        t.iout = iout_raw / 10.0f;
+        t.iout = iout;
         t.temp = static_cast<float>(temp_raw & TEMP_MASK);
         t.pout = t.vout * t.iout;
 
@@ -302,7 +327,8 @@ private:
     static constexpr uint8_t PMBUS_READ_TEMP1 = 0x8D;
     static constexpr uint8_t PMBUS_REVISION = 0x98;
     static constexpr uint16_t TEMP_MASK = 0x07FF;
-    static constexpr int32_t IOUT_GLITCH_THRESHOLD_RAW = 2500;
+    static constexpr int16_t IOUT_GLITCH_MAX_RAW = 2500;
+    static constexpr int16_t IOUT_GLITCH_MIN_RAW = -50;
 
     // 1 = found (fd_ kept open), 0 = transfers issued but no PMIC, -1 = no transfer.
     int try_bus(int bus) {

@@ -51,12 +51,18 @@ case "$VRM_KERNEL" in
         if grep -qsx bc250_vrm /sys/class/hwmon/hwmon*/name; then
             echo "  -> Kernel bc250_vrm driver active: read from hwmon, no direct I2C access"
         else
-            echo "  -> Kernel bc250_vrm driver loaded but not bound (no SMBus hardware mod?): VRM telemetry unavailable"
+            VRM_VERSION="$(cat /sys/module/bc250_vrm/version 2>/dev/null || true)"
+            if [ "$VRM_VERSION" = "1.0.0" ]; then
+                echo "  -> Kernel bc250_vrm 1.0.0 loaded but not bound: it needs the SMBus hardware mod, 1.1.0+ does not"
+            else
+                echo "  -> Kernel bc250_vrm driver loaded but not bound: the VRM did not answer, check dmesg"
+            fi
         fi ;;
     autoload)
         echo "  -> Kernel bc250_vrm driver installed: after a reboot VRM telemetry comes from hwmon" ;;
     *)
-        echo "  -> No bc250_vrm kernel driver: VRM telemetry uses direct PMBus over I2C" ;;
+        echo "  -> No bc250_vrm kernel driver: VRM telemetry uses direct PMBus over I2C (needs the SMBus hardware mod)"
+        echo "     bc250_vrm 1.1.0+ needs no mod: https://github.com/Hexxeh/bc250-vrm-dkms" ;;
 esac
 
 # A blacklist left over from the old "fix" for the collision with the kernel

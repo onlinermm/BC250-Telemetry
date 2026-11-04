@@ -33,6 +33,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
+    def log_request(self, code='-', size='-'):
+        # Only failed requests are logged: an open dashboard polls
+        # /api/telemetry every ~700 ms.
+        if isinstance(code, int) and code < 400:
+            return
+        super().log_request(code, size)
+
     def _send_json(self, payload, status=200, *, allow_nan=True):
         # Serialize BEFORE sending headers: if json.dumps raises (e.g. a
         # non-finite value under allow_nan=False), we must not have already

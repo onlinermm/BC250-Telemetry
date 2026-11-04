@@ -76,6 +76,12 @@ class DaemonTests(unittest.TestCase):
             attrs[f'temp{i + 3}_input'] = chip * 1000
         return self.hwmon('bc250_memory', attrs)
 
+    def i2c_driver(self, name):
+        path = self.sys / 'bus/i2c/drivers' / name
+        path.mkdir(parents=True, exist_ok=True)
+        for attr in ('bind', 'unbind', 'uevent', 'module'):
+            (path / attr).touch()
+
     def adapter(self, bus, name, driver=None):
         devices = self.sys / 'bus/i2c/devices'
         (devices / f'i2c-{bus}').mkdir()
@@ -84,8 +90,9 @@ class DaemonTests(unittest.TestCase):
             client = devices / f'{bus}-0060'
             client.mkdir()
             target = self.sys / 'bus/i2c/drivers' / driver
-            target.mkdir(parents=True, exist_ok=True)
+            self.i2c_driver(driver)
             os.symlink(target, client / 'driver')
+            os.symlink(client, target / f'{bus}-0060')
 
     def collector_snapshot(self, status='ok', words='9509 11308 10537 10537 11051 10794 10794 10537'):
         now = time.clock_gettime(time.CLOCK_BOOTTIME)
@@ -183,6 +190,39 @@ class DaemonTests(unittest.TestCase):
         data = self.run_daemon('vrm_source = pmbus\n')
         self.assertEqual(data['sources']['vrm'], 'none')
         self.assertIn('raw PMBus access disabled', self.log)
+
+    def test_explicit_pmbus_is_refused_while_driver_uses_its_own_adapter(self):
+        self.vrm()
+        self.adapter(205, 'nct6687 SMBus master 0', driver='bc250_vrm')
+        self.adapter(206, 'SMBus PIIX4 adapter port 0 at 0b00')
+        data = self.run_daemon('vrm_source = pmbus\n')
+        self.assertEqual(data['sources']['vrm'], 'none')
+        self.assertIn('I2C device 205-0060', self.log)
+        self.assertIn('raw PMBus access disabled', self.log)
+        self.assertNotIn('cannot open /dev/i2c-*', self.log)
+
+    def test_auto_reads_hwmon_when_driver_uses_its_own_adapter(self):
+        self.vrm()
+        self.adapter(207, 'nct6687 SMBus master 0', driver='bc250_vrm')
+        self.adapter(208, 'SMBus PIIX4 adapter port 0 at 0b00')
+        data = self.run_daemon()
+        self.assertEqual(data['sources']['vrm'], 'hwmon')
+        self.assertTrue(data['hardware']['cpu']['valid'])
+
+    def test_loaded_but_unbound_driver_does_not_block_pmbus(self):
+        self.i2c_driver('bc250_vrm')
+        self.adapter(211, 'nct6687 SMBus master 0')
+        self.adapter(212, 'SMBus PIIX4 adapter port 0 at 0b00')
+        self.run_daemon()
+        self.assertNotIn('raw PMBus access disabled', self.log)
+        self.assertIn('cannot open /dev/i2c-*', self.log)
+
+    def test_foreign_driver_on_a_non_candidate_bus_does_not_block_pmbus(self):
+        self.adapter(209, 'AMDGPU DM i2c hw bus 0', driver='some_driver')
+        self.adapter(210, 'SMBus PIIX4 adapter port 0 at 0b00')
+        self.run_daemon()
+        self.assertNotIn('raw PMBus access disabled', self.log)
+        self.assertIn('cannot open /dev/i2c-*', self.log)
 
     def test_only_piix4_adapters_are_probe_candidates(self):
         self.adapter(203, 'AMDGPU DM i2c hw bus 0')

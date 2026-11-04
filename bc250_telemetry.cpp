@@ -112,12 +112,17 @@ public:
         } else {
             for (const auto &a : vrm::pmbus_adapters()) buses.push_back(a.bus);
         }
+        string owned = vrm::vrm_driver_device();
+        string driver = owned.empty() ? "" : "bc250_vrm";
         for (int bus : buses) {
-            const string driver = vrm::bound_driver(bus);
-            if (driver.empty()) continue;
+            if (!driver.empty()) break;
+            driver = vrm::bound_driver(bus);
+            if (!driver.empty()) owned = to_string(bus) + "-0060";
+        }
+        if (!driver.empty()) {
             pm_.close_bus();
             kind_ = Kind::None;
-            set_status(L::Warning, "I2C device " + to_string(bus) + "-0060 is owned by kernel driver '" +
+            set_status(L::Warning, "I2C device " + owned + " is owned by kernel driver '" +
                                    driver + "' without a usable bc250_vrm hwmon device; "
                                    "raw PMBus access disabled to avoid colliding with it");
             return;
@@ -147,7 +152,7 @@ public:
         case vrm::Pmbus::Probe::NotFound: {
             // Every probe that misses shows up in dmesg as "SMBus Timeout" /
             // "Failed!" from i2c-piix4, so back off hard and eventually stop:
-            // a board without the SMBus hardware mod will never answer.
+            // without the SMBus hardware mod this bus will never answer.
             static constexpr int BACKOFF_S[] = {30, 60, 120, 300, 600};
             static constexpr int MAX_ROUNDS = sizeof(BACKOFF_S) / sizeof(BACKOFF_S[0]) + 1;
             ++probe_rounds_;
@@ -155,7 +160,8 @@ public:
                 gave_up_ = true;
                 set_status(L::Notice, "no VRM PMIC answered at 0x60 after " + to_string(MAX_ROUNDS) +
                                       " attempts; stopped probing to keep the SMBus quiet. VRM telemetry "
-                                      "needs the SMBus hardware mod (see hardware.md). "
+                                      "needs the bc250_vrm kernel driver >= 1.1.0 or the SMBus "
+                                      "hardware mod (see hardware.md). "
                                       "Run 'systemctl reload apu-telemetry' to retry");
             } else {
                 const int delay = BACKOFF_S[probe_rounds_ - 1];

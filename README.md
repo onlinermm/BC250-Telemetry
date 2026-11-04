@@ -13,8 +13,9 @@ It merges two data sources into one JSON snapshot every ~700 ms:
   temperature for the CPU and GPU rails. If the kernel `bc250_vrm` driver is
   loaded (linux-cachyos-bc250, or [bc250-vrm-dkms](https://github.com/Hexxeh/bc250-vrm-dkms))
   they are read from its hwmon device; otherwise the daemon talks PMBus to the
-  PMIC (`0x60`) on the AMD SMBus itself. Either way, getting this bus exposed
-  requires a small physical mod — see [hardware.md](hardware.md) and
+  PMIC (`0x60`) on the AMD SMBus itself. `bc250_vrm` 1.1.0 or newer needs no
+  hardware changes; older versions and direct PMBus need a small physical mod
+  — see [hardware.md](hardware.md) and
   [Kernel drivers](#kernel-drivers-bc250_vrm--bc250_memory).
 - **Software (Linux hwmon/sysfs):** die temperatures, clocks, power draw
   (PPT), and fan RPM/PWM, via the `amdgpu`, `k10temp`, `nct6686`, and `nvme`
@@ -61,6 +62,18 @@ default `auto` settings nothing needs to be configured or blacklisted:
 | VRM rails | read from `bc250_vrm` hwmon; the daemon never opens `/dev/i2c-*` | direct PMBus on the AMD SMBus (PIIX4) adapters only |
 | GDDR6 | read from `bc250_memory` hwmon (every 3 s) | `bc250-memory.service`, if installed |
 
+- **`bc250_vrm` 1.1.0 or newer needs no hardware mod:** it reaches the PMIC
+  through the NCT6687 SMBus master, on an I2C adapter of its own. 1.0.0 uses
+  the AMD SMBus and needs the mod. Nothing changes in the daemon's setup: it
+  finds either version by its hwmon name. The module and the `nct6683`/`nct6687`
+  fan drivers use separate EC ports and work side by side. To install it, see
+  [bc250-vrm-dkms](https://github.com/Hexxeh/bc250-vrm-dkms).
+- **Boards that already have the mod can keep the wires.** With 1.1.0 loaded
+  the daemon reads hwmon and leaves the AMD SMBus alone; without the driver it
+  goes back to direct PMBus over the wires.
+- **On Bazzite and SteamOS, the hardware mod is recommended for VRM data**
+  unless the kernel has `bc250_vrm` 1.1.0 or newer: adding the module through
+  DKMS may not be practical on these image-based systems.
 - **Do not run `bc250_memory` and `bc250-memory.service` together.** Both
   send SMU queue 3 messages; together they wedge the SMU and the fans ramp
   up. The service now refuses to start (and stops) when the module is
@@ -256,7 +269,8 @@ Without the `bc250_vrm` kernel driver, the daemon looks for the PMIC
 with a read before it ever writes. It never touches the AMDGPU display
 buses, and never a `0x60` device that a kernel driver has claimed. If nothing
 answers it retries after 30 s, 1, 2, 5 and 10 minutes, then stops probing
-(boards without the SMBus mod would otherwise log I2C errors forever);
+(boards without the SMBus mod would otherwise log I2C errors forever;
+those boards can use `bc250_vrm` 1.1.0 or newer instead);
 `sudo systemctl reload apu-telemetry` starts over. To force a specific bus,
 set `i2c_bus = 4` in `/etc/bc250-telemetry.conf`, or for a one-off run:
 

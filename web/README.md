@@ -51,3 +51,7 @@ machine).
 ```bash
 journalctl -u bc250-web.service -f
 ```
+
+Only startup messages and failed requests (status 400 and up) are logged.
+Successful requests, including dashboard polling, are not, so a quiet journal
+is normal.
